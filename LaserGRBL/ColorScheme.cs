@@ -1,4 +1,4 @@
-﻿//Copyright (c) 2016-2021 Diego Settimi - https://github.com/arkypita/
+//Copyright (c) 2016-2021 Diego Settimi - https://github.com/arkypita/
 
 // This program is free software; you can redistribute it and/or modify  it under the terms of the GPLv3 General Public License as published by  the Free Software Foundation; either version 3 of the License, or (at  your option) any later version.
 // This program is distributed in the hope that it will be useful, but  WITHOUT ANY WARRANTY; without even the implied warranty of  MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the GPLv3  General Public License for more details.
@@ -338,10 +338,94 @@ namespace LaserGRBL
         public Color PressedButtons => Color.Crimson;
     }
 
+    // Modern Material Dark scheme
+    public class SchemeMaterialDark : IColorScheme
+    {
+        public Scheme Scheme => Scheme.MaterialDark;
+        public bool IsDark => true;
+        public Color FormBackColor => Color.FromArgb(28, 30, 38);
+        public Color FormForeColor => Color.FromArgb(240, 243, 248);
+        public Color PreviewBackColor => Color.FromArgb(19, 20, 26);
+        public Color PreviewText => Color.FromArgb(220, 225, 235);
+        public Color PreviewRuler => Color.FromArgb(70, 78, 98);
+        public Color PreviewGrid => Color.FromArgb(36, 40, 52);
+        public Color PreviewGridMinor => Color.FromArgb(26, 29, 39);
+        public Color PreviewJobRange => Color.FromArgb(255, 171, 0); // Material Amber
+        public Color PreviewFirstMovement => Color.FromArgb(41, 121, 255); // Material Blue
+        public Color PreviewOtherMovement => Color.FromArgb(75, 85, 105);
+        public Color PreviewLaserPower => Color.FromArgb(0, 229, 255); // Cyan
+        public Color PreviewCross => Color.FromArgb(255, 23, 68); // Red
+        public Color PreviewCommandOK => Color.FromArgb(0, 230, 118);
+        public Color PreviewCommandKO => Color.FromArgb(255, 61, 0);
+        public Color PreviewCommandWait => Color.FromArgb(255, 171, 0);
+        public Color PreviewCrossCursor => Color.FromArgb(120, 130, 150);
+        public Color LogBackColor => Color.FromArgb(22, 23, 30);
+        public Color LogLeftCOMMAND => Color.FromArgb(240, 245, 255);
+        public Color LogLeftSTARTUP => Color.FromArgb(0, 230, 118);
+        public Color LogLeftALARM => Color.FromArgb(255, 23, 68);
+        public Color LogLeftCONFIG => Color.FromArgb(160, 170, 190);
+        public Color LogLeftFEEDBACK => Color.FromArgb(41, 182, 246);
+        public Color LogLeftPOSITION => Color.FromArgb(255, 145, 0);
+        public Color LogLeftOTHERS => Color.FromArgb(224, 64, 251);
+        public Color LogRightGOOD => Color.FromArgb(0, 230, 118);
+        public Color LogRightBAD => Color.FromArgb(255, 23, 68);
+        public Color LogRightOTHERS => Color.FromArgb(220, 225, 235);
+        public Color TextBoxColorOverride => Color.FromArgb(240, 245, 255);
+        public Color LinkColor => Color.FromArgb(0, 229, 255);
+        public Color VisitedLinkColor => Color.FromArgb(179, 136, 255);
+        public Color ControlsBorder => Color.FromArgb(48, 52, 68);
+        public Color ControlsBackDisabled => Color.FromArgb(38, 41, 52);
+        public Color DisabledButtons => Color.FromArgb(90, 96, 115);
+        public Color PressedButtons => Color.FromArgb(0, 229, 255);
+    }
+
+    // Modern Material Light scheme
+    public class SchemeMaterialLight : IColorScheme
+    {
+        public Scheme Scheme => Scheme.MaterialLight;
+        public bool IsDark => false;
+        public Color FormBackColor => Color.FromArgb(246, 248, 252);
+        public Color FormForeColor => Color.FromArgb(26, 32, 44);
+        public Color PreviewBackColor => Color.FromArgb(240, 243, 249);
+        public Color PreviewText => Color.FromArgb(30, 41, 59);
+        public Color PreviewRuler => Color.FromArgb(148, 163, 184);
+        public Color PreviewGrid => Color.FromArgb(226, 232, 240);
+        public Color PreviewGridMinor => Color.FromArgb(241, 245, 249);
+        public Color PreviewJobRange => Color.FromArgb(217, 119, 6);
+        public Color PreviewFirstMovement => Color.FromArgb(37, 99, 235);
+        public Color PreviewOtherMovement => Color.FromArgb(160, 174, 192);
+        public Color PreviewLaserPower => Color.FromArgb(220, 38, 38);
+        public Color PreviewCross => Color.FromArgb(220, 38, 38);
+        public Color PreviewCommandOK => Color.FromArgb(22, 163, 74);
+        public Color PreviewCommandKO => Color.FromArgb(220, 38, 38);
+        public Color PreviewCommandWait => Color.FromArgb(234, 88, 12);
+        public Color PreviewCrossCursor => Color.FromArgb(100, 116, 139);
+        public Color LogBackColor => Color.White;
+        public Color LogLeftCOMMAND => Color.FromArgb(15, 23, 42);
+        public Color LogLeftSTARTUP => Color.FromArgb(22, 163, 74);
+        public Color LogLeftALARM => Color.FromArgb(220, 38, 38);
+        public Color LogLeftCONFIG => Color.FromArgb(71, 85, 105);
+        public Color LogLeftFEEDBACK => Color.FromArgb(2, 132, 199);
+        public Color LogLeftPOSITION => Color.FromArgb(217, 119, 6);
+        public Color LogLeftOTHERS => Color.FromArgb(147, 51, 234);
+        public Color LogRightGOOD => Color.FromArgb(22, 163, 74);
+        public Color LogRightBAD => Color.FromArgb(220, 38, 38);
+        public Color LogRightOTHERS => Color.FromArgb(51, 65, 85);
+        public Color TextBoxColorOverride => Color.FromArgb(15, 23, 42);
+        public Color LinkColor => Color.FromArgb(37, 99, 235);
+        public Color VisitedLinkColor => Color.FromArgb(124, 58, 237);
+        public Color ControlsBorder => Color.FromArgb(203, 213, 225);
+        public Color ControlsBackDisabled => Color.FromArgb(241, 245, 249);
+        public Color DisabledButtons => Color.FromArgb(148, 163, 184);
+        public Color PressedButtons => Color.FromArgb(37, 99, 235);
+    }
+
     public class ColorScheme
     {
         public enum Scheme
         {
+            MaterialDark,
+            MaterialLight,
             CADStyle,
             CADDark,
             BlueLaser,
@@ -356,6 +440,8 @@ namespace LaserGRBL
 		static ColorScheme()
         {
             mDefaultSchemas = new Dictionary<Scheme, IColorScheme>();
+            AddSchema(new SchemeMaterialDark());
+            AddSchema(new SchemeMaterialLight());
             AddSchema(new SchemeCADStyle());
             AddSchema(new SchemeCADDark());
             AddSchema(new SchemeBlueLaser());
@@ -363,7 +449,7 @@ namespace LaserGRBL
             AddSchema(new SchemeDark());
             AddSchema(new SchemeHacker());
             AddSchema(new SchemeNighty());
-            CurrentScheme = Scheme.RedLaser;
+            CurrentScheme = Scheme.MaterialDark;
 		}
 
         public static void AddSchema(IColorScheme colorSchema)

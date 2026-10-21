@@ -1,4 +1,4 @@
-﻿//Copyright (c) 2016-2021 Diego Settimi - https://github.com/arkypita/
+//Copyright (c) 2016-2021 Diego Settimi - https://github.com/arkypita/
 
 // This program is free software; you can redistribute it and/or modify  it under the terms of the GPLv3 General Public License as published by  the Free Software Foundation; either version 3 of the License, or (at  your option) any later version.
 // This program is distributed in the hope that it will be useful, but  WITHOUT ANY WARRANTY; without even the implied warranty of  MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the GPLv3  General Public License for more details.
@@ -54,6 +54,258 @@ namespace LaserGRBL
             }
             list.Clear();
         }
+
+		public static string TranslateGCodeLine(string line, decimal dx, decimal dy)
+		{
+			if (string.IsNullOrWhiteSpace(line) || (dx == 0 && dy == 0))
+				return line;
+
+			string trimmed = line.Trim();
+
+			// Do not modify full-line comments
+			if (trimmed.StartsWith(";") || (trimmed.StartsWith("(") && trimmed.EndsWith(")")))
+				return line;
+
+			// Do not translate coordinate system commands or machine coordinate moves
+			string upper = trimmed.ToUpperInvariant();
+			if (upper.Contains("G53") || upper.Contains("G92") || upper.Contains("G10") ||
+				upper.Contains("G54") || upper.Contains("G55") || upper.Contains("G56") ||
+				upper.Contains("G57") || upper.Contains("G58") || upper.Contains("G59"))
+				return line;
+
+			// Separate comments (;... or (...))
+			string comment = "";
+			int semiIdx = trimmed.IndexOf(';');
+			if (semiIdx >= 0)
+			{
+				comment = trimmed.Substring(semiIdx);
+				trimmed = trimmed.Substring(0, semiIdx).TrimEnd();
+			}
+			int parenIdx = trimmed.IndexOf('(');
+			if (parenIdx >= 0)
+			{
+				comment = trimmed.Substring(parenIdx) + (comment.Length > 0 ? " " + comment : "");
+				trimmed = trimmed.Substring(0, parenIdx).TrimEnd();
+			}
+
+			if (dx != 0)
+			{
+				trimmed = System.Text.RegularExpressions.Regex.Replace(
+					trimmed,
+					@"(?<=(?:^|[^A-Z])X)[+-]?\d+(?:\.\d+)?",
+					m =>
+					{
+						if (decimal.TryParse(m.Value, System.Globalization.NumberStyles.Float, System.Globalization.CultureInfo.InvariantCulture, out decimal val))
+						{
+							decimal nval = val + dx;
+							return nval.ToString("0.###", System.Globalization.CultureInfo.InvariantCulture);
+						}
+						return m.Value;
+					},
+					System.Text.RegularExpressions.RegexOptions.IgnoreCase
+				);
+			}
+
+			if (dy != 0)
+			{
+				trimmed = System.Text.RegularExpressions.Regex.Replace(
+					trimmed,
+					@"(?<=(?:^|[^A-Z])Y)[+-]?\d+(?:\.\d+)?",
+					m =>
+					{
+						if (decimal.TryParse(m.Value, System.Globalization.NumberStyles.Float, System.Globalization.CultureInfo.InvariantCulture, out decimal val))
+						{
+							decimal nval = val + dy;
+							return nval.ToString("0.###", System.Globalization.CultureInfo.InvariantCulture);
+						}
+						return m.Value;
+					},
+					System.Text.RegularExpressions.RegexOptions.IgnoreCase
+				);
+			}
+
+			if (!string.IsNullOrEmpty(comment))
+				return trimmed + " " + comment;
+			return trimmed;
+		}
+
+		public void Translate(decimal dx, decimal dy)
+		{
+			if (dx == 0 && dy == 0) return;
+			if (CheckInUse()) return;
+
+			for (int i = 0; i < list.Count; i++)
+			{
+				string oldCmd = list[i].Command;
+				string newCmd = TranslateGCodeLine(oldCmd, dx, dy);
+				if (newCmd != oldCmd)
+				{
+					list[i].Dispose();
+					list[i] = new GrblCommand(newCmd);
+				}
+			}
+
+			Analyze();
+			RiseOnFileLoaded("Translated", 0);
+		}
+
+		public void MoveTo(decimal targetX, decimal targetY, bool center = false)
+		{
+			if (!mRange.DrawingRange.ValidRange) return;
+			decimal curX = center ? (decimal)mRange.DrawingRange.Center.X : mRange.DrawingRange.X.Min;
+			decimal curY = center ? (decimal)mRange.DrawingRange.Center.Y : mRange.DrawingRange.Y.Min;
+			decimal dx = targetX - curX;
+			decimal dy = targetY - curY;
+			Translate(dx, dy);
+		}
+
+		public void ResetToOrigin()
+		{
+			if (!mRange.DrawingRange.ValidRange) return;
+			decimal dx = -mRange.DrawingRange.X.Min;
+			decimal dy = -mRange.DrawingRange.Y.Min;
+			Translate(dx, dy);
+		}
+
+		public static string RotateGCodeLine(string line, decimal angleDeg, decimal cx, decimal cy)
+		{
+			if (string.IsNullOrWhiteSpace(line) || angleDeg == 0)
+				return line;
+
+			string trimmed = line.Trim();
+
+			if (trimmed.StartsWith(";") || (trimmed.StartsWith("(") && trimmed.EndsWith(")")))
+				return line;
+
+			string upper = trimmed.ToUpperInvariant();
+			if (upper.Contains("G53") || upper.Contains("G92") || upper.Contains("G10") ||
+				upper.Contains("G54") || upper.Contains("G55") || upper.Contains("G56") ||
+				upper.Contains("G57") || upper.Contains("G58") || upper.Contains("G59"))
+				return line;
+
+			string comment = "";
+			int semiIdx = trimmed.IndexOf(';');
+			if (semiIdx >= 0)
+			{
+				comment = trimmed.Substring(semiIdx);
+				trimmed = trimmed.Substring(0, semiIdx).TrimEnd();
+			}
+			int parenIdx = trimmed.IndexOf('(');
+			if (parenIdx >= 0)
+			{
+				comment = trimmed.Substring(parenIdx) + (comment.Length > 0 ? " " + comment : "");
+				trimmed = trimmed.Substring(0, parenIdx).TrimEnd();
+			}
+
+			var mx = System.Text.RegularExpressions.Regex.Match(trimmed, @"(?<=(?:^|[^A-Z])X)[+-]?\d+(?:\.\d+)?", System.Text.RegularExpressions.RegexOptions.IgnoreCase);
+			var my = System.Text.RegularExpressions.Regex.Match(trimmed, @"(?<=(?:^|[^A-Z])Y)[+-]?\d+(?:\.\d+)?", System.Text.RegularExpressions.RegexOptions.IgnoreCase);
+
+			if (mx.Success || my.Success)
+			{
+				decimal x = mx.Success && decimal.TryParse(mx.Value, System.Globalization.NumberStyles.Float, System.Globalization.CultureInfo.InvariantCulture, out decimal vx) ? vx : cx;
+				decimal y = my.Success && decimal.TryParse(my.Value, System.Globalization.NumberStyles.Float, System.Globalization.CultureInfo.InvariantCulture, out decimal vy) ? vy : cy;
+
+				double rad = (double)angleDeg * Math.PI / 180.0;
+				double cos = Math.Cos(rad);
+				double sin = Math.Sin(rad);
+
+				double relX = (double)(x - cx);
+				double relY = (double)(y - cy);
+
+				double rotX = (double)cx + (relX * cos - relY * sin);
+				double rotY = (double)cy + (relX * sin + relY * cos);
+
+				if (mx.Success)
+				{
+					trimmed = System.Text.RegularExpressions.Regex.Replace(
+						trimmed,
+						@"(?<=(?:^|[^A-Z])X)[+-]?\d+(?:\.\d+)?",
+						rotX.ToString("0.###", System.Globalization.CultureInfo.InvariantCulture),
+						System.Text.RegularExpressions.RegexOptions.IgnoreCase
+					);
+				}
+				else
+				{
+					trimmed += " X" + rotX.ToString("0.###", System.Globalization.CultureInfo.InvariantCulture);
+				}
+
+				if (my.Success)
+				{
+					trimmed = System.Text.RegularExpressions.Regex.Replace(
+						trimmed,
+						@"(?<=(?:^|[^A-Z])Y)[+-]?\d+(?:\.\d+)?",
+						rotY.ToString("0.###", System.Globalization.CultureInfo.InvariantCulture),
+						System.Text.RegularExpressions.RegexOptions.IgnoreCase
+					);
+				}
+				else
+				{
+					trimmed += " Y" + rotY.ToString("0.###", System.Globalization.CultureInfo.InvariantCulture);
+				}
+			}
+
+			var mi = System.Text.RegularExpressions.Regex.Match(trimmed, @"(?<=(?:^|[^A-Z])I)[+-]?\d+(?:\.\d+)?", System.Text.RegularExpressions.RegexOptions.IgnoreCase);
+			var mj = System.Text.RegularExpressions.Regex.Match(trimmed, @"(?<=(?:^|[^A-Z])J)[+-]?\d+(?:\.\d+)?", System.Text.RegularExpressions.RegexOptions.IgnoreCase);
+			if (mi.Success || mj.Success)
+			{
+				decimal iVal = mi.Success && decimal.TryParse(mi.Value, System.Globalization.NumberStyles.Float, System.Globalization.CultureInfo.InvariantCulture, out decimal vi) ? vi : 0m;
+				decimal jVal = mj.Success && decimal.TryParse(mj.Value, System.Globalization.NumberStyles.Float, System.Globalization.CultureInfo.InvariantCulture, out decimal vj) ? vj : 0m;
+
+				double rad = (double)angleDeg * Math.PI / 180.0;
+				double cos = Math.Cos(rad);
+				double sin = Math.Sin(rad);
+
+				double rotI = (double)iVal * cos - (double)jVal * sin;
+				double rotJ = (double)iVal * sin + (double)jVal * cos;
+
+				if (mi.Success)
+				{
+					trimmed = System.Text.RegularExpressions.Regex.Replace(
+						trimmed,
+						@"(?<=(?:^|[^A-Z])I)[+-]?\d+(?:\.\d+)?",
+						rotI.ToString("0.###", System.Globalization.CultureInfo.InvariantCulture),
+						System.Text.RegularExpressions.RegexOptions.IgnoreCase
+					);
+				}
+				if (mj.Success)
+				{
+					trimmed = System.Text.RegularExpressions.Regex.Replace(
+						trimmed,
+						@"(?<=(?:^|[^A-Z])J)[+-]?\d+(?:\.\d+)?",
+						rotJ.ToString("0.###", System.Globalization.CultureInfo.InvariantCulture),
+						System.Text.RegularExpressions.RegexOptions.IgnoreCase
+					);
+				}
+			}
+
+			if (!string.IsNullOrEmpty(comment))
+				return trimmed + " " + comment;
+			return trimmed;
+		}
+
+		public void Rotate(decimal angleDeg = 90m)
+		{
+			if (angleDeg == 0) return;
+			if (CheckInUse()) return;
+			if (!mRange.DrawingRange.ValidRange) return;
+
+			decimal cx = (decimal)mRange.DrawingRange.Center.X;
+			decimal cy = (decimal)mRange.DrawingRange.Center.Y;
+
+			for (int i = 0; i < list.Count; i++)
+			{
+				string oldCmd = list[i].Command;
+				string newCmd = RotateGCodeLine(oldCmd, angleDeg, cx, cy);
+				if (newCmd != oldCmd)
+				{
+					list[i].Dispose();
+					list[i] = new GrblCommand(newCmd);
+				}
+			}
+
+			Analyze();
+			RiseOnFileLoaded("Translated", 0);
+		}
 
         public void SaveGCODE(string filename, bool header, bool footer, bool between, int cycles, bool useLFLineEndings, GrblCore core)
 		{

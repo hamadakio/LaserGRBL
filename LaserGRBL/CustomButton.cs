@@ -1,4 +1,4 @@
-﻿//Copyright (c) 2016-2021 Diego Settimi - https://github.com/arkypita/
+//Copyright (c) 2016-2021 Diego Settimi - https://github.com/arkypita/
 
 // This program is free software; you can redistribute it and/or modify  it under the terms of the GPLv3 General Public License as published by  the Free Software Foundation; either version 3 of the License, or (at  your option) any later version.
 // This program is distributed in the hope that it will be useful, but  WITHOUT ANY WARRANTY; without even the implied warranty of  MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the GPLv3  General Public License for more details.
@@ -31,6 +31,39 @@ namespace LaserGRBL
 			{
 				if (buttons == null) buttons = (List<CustomButton>)Settings.GetAndDeleteObject("Custom Buttons", null);
 				if (buttons == null) buttons = new List<CustomButton>();
+				SaveFile();
+			}
+
+			EnsureFocusButton();
+		}
+
+		public static void EnsureFocusButton()
+		{
+			if (buttons == null)
+				buttons = new List<CustomButton>();
+
+			bool hasFocus = false;
+			foreach (CustomButton b in buttons)
+			{
+				if (b != null && (b.Caption == "Focus" || (b.GCode != null && b.GCode.Contains("M3") && b.GCode.Contains("S10"))))
+				{
+					hasFocus = true;
+					break;
+				}
+			}
+
+			if (!hasFocus)
+			{
+				CustomButton focusBtn = new CustomButton()
+				{
+					Caption = "Focus",
+					ToolTip = "Laser 1% (Foco / Mira)",
+					GCode = "M3 S10",
+					GCode2 = "M5 S0",
+					ButtonType = CustomButton.ButtonTypes.TwoStateButton,
+					EnableStyle = CustomButton.EnableStyles.Always
+				};
+				buttons.Add(focusBtn);
 				SaveFile();
 			}
 		}

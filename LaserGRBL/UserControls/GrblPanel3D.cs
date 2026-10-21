@@ -1,4 +1,4 @@
-﻿using LaserGRBL.Obj3D;
+using LaserGRBL.Obj3D;
 using SharpGL;
 using SharpGL.SceneGraph;
 using SharpGL.SceneGraph.Cameras;
@@ -6,10 +6,13 @@ using SharpGL.Version;
 using System;
 using System.Drawing;
 using System.Drawing.Drawing2D;
+using System.Drawing.Imaging;
 using System.Threading;
 using System.Windows.Forms;
 using Tools;
 using static LaserGRBL.ProgramRange;
+using LaserGRBL.Camera;
+using LaserGRBL.LightBurn;
 
 namespace LaserGRBL.UserControls
 {
@@ -23,6 +26,17 @@ namespace LaserGRBL.UserControls
         private Point? mMousePos = null;
         // current mouse world position
         private PointF? mMouseWorldPosition { get; set; }
+
+		private Panel pnlPositionBar;
+		private Button btnTogglePosBar;
+		private NumericUpDown numPosX;
+		private NumericUpDown numPosY;
+		private Button btnLaser1Pct;
+		private bool mIsDraggingJob = false;
+		private PointF? mDragJobStartWorldPos = null;
+		private PointF mDragJobCurrentOffset = PointF.Empty;
+		private bool mJobMoveMode = false;
+		private bool mIsLaserGuideOn = false;
 		// main camera
 		private OrthographicCamera mCamera { get; } = new OrthographicCamera();
 		private GLColor mBackgroundColor { get; set; }
@@ -144,6 +158,7 @@ namespace LaserGRBL.UserControls
 			Grbl3D.OnLoadingPercentageChange += Grbl3D_OnLoadingPercentageChange;
 			Resize += GrblPanel3D_Resize;
 			Disposed += GrblPanel3D_Disposed;
+			Camera.CameraOverlayManager.OnFrameUpdated += () => { try { if (IsHandleCreated) Invalidate(); } catch { } };
 			mCamera.Position = new Vertex(0, 0, 0);
 			mCamera.Near = 0;
 			mCamera.Far = 100000000;
@@ -168,6 +183,7 @@ namespace LaserGRBL.UserControls
 				}
 			});
 			*/
+			InitializePositioningBar();
 		}
 
 		private static double GetRulerStep(double n)
@@ -668,6 +684,7 @@ namespace LaserGRBL.UserControls
 				try
 				{
 					e.Graphics.DrawImage(bmp, new Point(0, 0));
+					DrawCameraOverlay(e);
 					DoGDIDraw(e);
 				}
 				catch (Exception ex) { OnPaintException = ex;  }
@@ -714,6 +731,56 @@ namespace LaserGRBL.UserControls
 		private string FormatCoord(float coord)
 		{
 			return string.Format("{0,10:######0.000}", coord);
+		}
+
+		private void DrawCameraOverlay(PaintEventArgs e)
+		{
+			if (!Camera.CameraOverlayManager.Enabled) return;
+			using (Bitmap camFrame = Camera.CameraOverlayManager.WarpedFrame)
+			{
+				if (camFrame == null) return;
+
+				try
+				{
+					float bedW = Camera.CameraOverlayManager.BedWidthMm * Camera.CameraOverlayManager.ScaleX;
+					float bedH = Camera.CameraOverlayManager.BedHeightMm * Camera.CameraOverlayManager.ScaleY;
+					float offX = Camera.CameraOverlayManager.OffsetX_Mm;
+					float offY = Camera.CameraOverlayManager.OffsetY_Mm;
+
+					// Map machine coordinates (offX, offY) and (offX + bedW, offY + bedH) to screen pixels
+					float x0 = (float)((offX - mCamera.Left) / (mCamera.Right - mCamera.Left) * Width);
+					float y0 = (float)(Height - (offY - mCamera.Bottom) / (mCamera.Top - mCamera.Bottom) * Height);
+					float x1 = (float)((offX + bedW - mCamera.Left) / (mCamera.Right - mCamera.Left) * Width);
+					float y1 = (float)(Height - (offY + bedH - mCamera.Bottom) / (mCamera.Top - mCamera.Bottom) * Height);
+
+					Rectangle destRect = Rectangle.FromLTRB(
+						(int)Math.Min(x0, x1),
+						(int)Math.Min(y0, y1),
+						(int)Math.Max(x0, x1),
+						(int)Math.Max(y0, y1)
+					);
+
+					if (destRect.Width > 0 && destRect.Height > 0 && destRect.IntersectsWith(ClientRectangle))
+					{
+						float opacity = Math.Max(0.05f, Math.Min(1.0f, Camera.CameraOverlayManager.Opacity));
+						ColorMatrix cm = new ColorMatrix();
+						cm.Matrix33 = opacity;
+
+						using (ImageAttributes ia = new ImageAttributes())
+						{
+							ia.SetColorMatrix(cm, ColorMatrixFlag.Default, ColorAdjustType.Bitmap);
+							e.Graphics.InterpolationMode = InterpolationMode.Bilinear;
+							e.Graphics.DrawImage(camFrame, destRect, 0, 0, camFrame.Width, camFrame.Height, GraphicsUnit.Pixel, ia);
+						}
+
+						using (Pen bedPen = new Pen(Color.FromArgb((int)(opacity * 180), Color.Cyan), 1.5f) { DashStyle = DashStyle.Dash })
+						{
+							e.Graphics.DrawRectangle(bedPen, destRect);
+						}
+					}
+				}
+				catch { }
+			}
 		}
 
 		private void DoGDIDraw(PaintEventArgs e)
@@ -854,6 +921,56 @@ namespace LaserGRBL.UserControls
 					ShowCursor = true;
 				}
 
+				// Live ghost box when dragging job
+				if (mIsDraggingJob && Core?.LoadedFile?.Range?.DrawingRange?.ValidRange == true)
+				{
+					float minX = (float)Core.LoadedFile.Range.DrawingRange.X.Min + mDragJobCurrentOffset.X;
+					float maxX = (float)Core.LoadedFile.Range.DrawingRange.X.Max + mDragJobCurrentOffset.X;
+					float minY = (float)Core.LoadedFile.Range.DrawingRange.Y.Min + mDragJobCurrentOffset.Y;
+					float maxY = (float)Core.LoadedFile.Range.DrawingRange.Y.Max + mDragJobCurrentOffset.Y;
+
+					float sx0 = (float)((minX - mCamera.Left) / (mCamera.Right - mCamera.Left) * Width);
+					float sy0 = (float)(Height - (minY - mCamera.Bottom) / (mCamera.Top - mCamera.Bottom) * Height);
+					float sx1 = (float)((maxX - mCamera.Left) / (mCamera.Right - mCamera.Left) * Width);
+					float sy1 = (float)(Height - (maxY - mCamera.Bottom) / (mCamera.Top - mCamera.Bottom) * Height);
+
+					Rectangle dragRect = Rectangle.FromLTRB(
+						(int)Math.Min(sx0, sx1),
+						(int)Math.Min(sy0, sy1),
+						(int)Math.Max(sx0, sx1),
+						(int)Math.Max(sy0, sy1)
+					);
+
+					using (Brush dragFill = new SolidBrush(Color.FromArgb(70, Color.DeepSkyBlue)))
+					{
+						e.Graphics.FillRectangle(dragFill, dragRect);
+					}
+					using (Pen dragPen = new Pen(Color.Cyan, 2f) { DashStyle = DashStyle.Dash })
+					{
+						e.Graphics.DrawRectangle(dragPen, dragRect);
+					}
+
+					string dragText = $"🎯 Posição: X={minX:0.0}, Y={minY:0.0} mm (ΔX={mDragJobCurrentOffset.X:+0.0;-0.0;0.0}, ΔY={mDragJobCurrentOffset.Y:+0.0;-0.0;0.0})";
+					using (Font f = new Font("Segoe UI", 9f, FontStyle.Bold))
+					{
+						Size txtSize = TextRenderer.MeasureText(dragText, f);
+						Point txtPt = new Point(Math.Max(10, dragRect.Left), Math.Max(10, dragRect.Top - txtSize.Height - 6));
+						DrawOverlay(e, txtPt, txtSize, Color.FromArgb(20, 20, 30), 200);
+						e.Graphics.DrawString(dragText, f, Brushes.White, txtPt.X, txtPt.Y);
+					}
+				}
+				else if (mJobMoveMode)
+				{
+					string modeText = "✋ Modo Mover Trabalho Ativo (Clique e arraste para posicionar)";
+					using (Font f = new Font("Segoe UI", 9f, FontStyle.Bold))
+					{
+						Size txtSize = TextRenderer.MeasureText(modeText, f);
+						Point txtPt = new Point((Width - txtSize.Width) / 2, 10);
+						DrawOverlay(e, txtPt, txtSize, Color.FromArgb(30, 60, 90), 210);
+						e.Graphics.DrawString(modeText, f, Brushes.Cyan, txtPt.X, txtPt.Y);
+					}
+				}
+
 			}
 		}
 
@@ -908,29 +1025,77 @@ namespace LaserGRBL.UserControls
 
 		private void GrblSceneControl_MouseUp(object sender, MouseEventArgs e)
 		{
-            if (Core?.CrossCursor.Value == true) ShowCursor = true;
-            Cursor.Current = Cursors.Default;
+			if (mIsDraggingJob)
+			{
+				mIsDraggingJob = false;
+				float dx = mDragJobCurrentOffset.X;
+				float dy = mDragJobCurrentOffset.Y;
+				mDragJobCurrentOffset = PointF.Empty;
+				mDragJobStartWorldPos = null;
+				if (Math.Abs(dx) > 0.05f || Math.Abs(dy) > 0.05f)
+				{
+					Core?.TranslateLoadedFile((decimal)dx, (decimal)dy);
+					UpdatePositionBarCoords();
+				}
+				Invalidate();
+			}
+
+			if (Core?.CrossCursor.Value == true) ShowCursor = true;
+			Cursor.Current = Cursors.Default;
 			mLastMousePos = null;
 			mMouseWorldPosition = null;
 		}
 
 		private void GrblSceneControl_MouseDown(object sender, MouseEventArgs e)
-        {
-            mMousePos = null;
-            Cursor.Current = Cursors.Cross;
+		{
+			double xp = e.X / (double)Width * (mCamera.Right - mCamera.Left) + mCamera.Left;
+			double yp = (Height - e.Y) / (double)Height * (mCamera.Top - mCamera.Bottom) + mCamera.Bottom;
+			mMouseWorldPosition = new PointF((float)xp, (float)yp);
+
+			if (e.Button == MouseButtons.Right)
+			{
+				ShowSceneContextMenu(e.Location, new PointF((float)xp, (float)yp));
+				return;
+			}
+
+			if (e.Button == MouseButtons.Left)
+			{
+				bool hasDrawing = Core?.LoadedFile?.Range?.DrawingRange?.ValidRange == true;
+				if (hasDrawing && (ModifierKeys.HasFlag(Keys.Shift) || mJobMoveMode))
+				{
+					mIsDraggingJob = true;
+					mDragJobStartWorldPos = new PointF((float)xp, (float)yp);
+					mDragJobCurrentOffset = PointF.Empty;
+					Cursor.Current = Cursors.SizeAll;
+					Invalidate();
+					return;
+				}
+			}
+
+			mMousePos = null;
+			Cursor.Current = Cursors.Cross;
 			mLastMousePos = e.Location;
 			Invalidate();
-        }
+		}
 
 		private void GrblSceneControl_MouseMove(object sender, MouseEventArgs e)
 		{
-            // compute mouse coord
-            mMousePos = e.Location;
-            double xp = e.X / (double)Width * (mCamera.Right - mCamera.Left) + mCamera.Left;
+			// compute mouse coord
+			mMousePos = e.Location;
+			double xp = e.X / (double)Width * (mCamera.Right - mCamera.Left) + mCamera.Left;
 			double yp = (Height - e.Y) / (double)Height * (mCamera.Top - mCamera.Bottom) + mCamera.Bottom;
 			mMouseWorldPosition = new PointF((float)xp, (float)yp);
-            // if in drag
-            if (mLastMousePos != null && e.Button == MouseButtons.Left)
+
+			if (mIsDraggingJob && mDragJobStartWorldPos != null)
+			{
+				Cursor.Current = Cursors.SizeAll;
+				mDragJobCurrentOffset = new PointF((float)(xp - mDragJobStartWorldPos.Value.X), (float)(yp - mDragJobStartWorldPos.Value.Y));
+				Invalidate();
+				return;
+			}
+
+			// if in drag
+			if (mLastMousePos != null && e.Button == MouseButtons.Left)
 			{
 				Cursor.Current = Cursors.SizeAll;
 				Point lastPos = (Point)mLastMousePos;
@@ -942,6 +1107,453 @@ namespace LaserGRBL.UserControls
 				mMousePos = null;
 			}
 			Invalidate();
+		}
+
+		private void ShowSceneContextMenu(Point screenPos, PointF worldPos)
+		{
+			ContextMenuStrip cms = new ContextMenuStrip();
+			cms.Renderer = new MaterialMenuRenderer();
+
+			bool hasDrawing = Core?.LoadedFile?.Range?.DrawingRange?.ValidRange == true;
+
+			ToolStripMenuItem titleItem = new ToolStripMenuItem($"🎯 Mesa: X={worldPos.X:0.0} mm, Y={worldPos.Y:0.0} mm")
+			{
+				Font = new Font("Segoe UI", 9f, FontStyle.Bold),
+				Enabled = false
+			};
+			cms.Items.Add(titleItem);
+			cms.Items.Add(new ToolStripSeparator());
+
+			if (hasDrawing)
+			{
+				ToolStripMenuItem miCenter = new ToolStripMenuItem($"🎯 Posicionar Imagem Aqui (Centro)", null, (s, ev) =>
+				{
+					Core?.MoveLoadedFileTo((decimal)worldPos.X, (decimal)worldPos.Y, true);
+					UpdatePositionBarCoords();
+				})
+				{
+					Font = new Font("Segoe UI", 9f, FontStyle.Bold)
+				};
+				cms.Items.Add(miCenter);
+
+				ToolStripMenuItem miCorner = new ToolStripMenuItem($"📐 Posicionar Imagem Aqui (Canto 0,0)", null, (s, ev) =>
+				{
+					Core?.MoveLoadedFileTo((decimal)worldPos.X, (decimal)worldPos.Y, false);
+					UpdatePositionBarCoords();
+				});
+				cms.Items.Add(miCorner);
+
+				ToolStripMenuItem miCenterBed = new ToolStripMenuItem($"🎯 Centralizar Imagem na Câmera / Mesa", null, (s, ev) =>
+				{
+					float bedW = CameraOverlayManager.BedWidthMm * CameraOverlayManager.ScaleX;
+					float bedH = CameraOverlayManager.BedHeightMm * CameraOverlayManager.ScaleY;
+					float targetX = CameraOverlayManager.OffsetX_Mm + bedW / 2f;
+					float targetY = CameraOverlayManager.OffsetY_Mm + bedH / 2f;
+					Core?.MoveLoadedFileTo((decimal)targetX, (decimal)targetY, true);
+					UpdatePositionBarCoords();
+				});
+				cms.Items.Add(miCenterBed);
+
+				ToolStripMenuItem miReset = new ToolStripMenuItem($"↺ Resetar Posição para Origem (0, 0)", null, (s, ev) =>
+				{
+					Core?.ResetLoadedFilePosition();
+					UpdatePositionBarCoords();
+				});
+				cms.Items.Add(miReset);
+
+				ToolStripMenuItem miRotDrawing = new ToolStripMenuItem($"🔄 Rotacionar Desenho / Imagem (90°)", null, (s, ev) =>
+				{
+					Core?.RotateLoadedFile(90m);
+					UpdatePositionBarCoords();
+				});
+				cms.Items.Add(miRotDrawing);
+
+				cms.Items.Add(new ToolStripSeparator());
+			}
+
+			ToolStripMenuItem miJog = new ToolStripMenuItem($"📍 Mover Cabeça do Laser para Cá (Jog)", null, (s, ev) =>
+			{
+				Core?.JogToPosition(worldPos, false);
+			});
+			cms.Items.Add(miJog);
+
+			ToolStripMenuItem miLaserToggle = new ToolStripMenuItem(mIsLaserGuideOn ? $"💡 Desligar Laser (Foco)" : $"💡 Ligar Laser 1% (Foco / Mira)", null, (s, ev) =>
+			{
+				ToggleLaser1Percent();
+			});
+			cms.Items.Add(miLaserToggle);
+
+			cms.Items.Add(new ToolStripSeparator());
+
+			ToolStripMenuItem miDragToggle = new ToolStripMenuItem(mJobMoveMode ? $"✋ Desativar Modo Arrastar Imagem" : $"✋ Ativar Modo Arrastar Imagem (ou segure SHIFT)", null, (s, ev) =>
+			{
+				mJobMoveMode = !mJobMoveMode;
+				Invalidate();
+			})
+			{
+				Checked = mJobMoveMode
+			};
+			cms.Items.Add(miDragToggle);
+
+			ToolStripMenuItem miCamera = new ToolStripMenuItem($"📷 Gerenciador de Câmera...", null, (s, ev) =>
+			{
+				CameraManagerForm.CreateAndShowDialog(Core);
+			});
+			cms.Items.Add(miCamera);
+
+			ToolStripMenuItem miRotPhoto = new ToolStripMenuItem($"📷 Rotacionar Foto da Câmera (90°)", null, (s, ev) =>
+			{
+				CameraOverlayManager.RotatePhoto(90);
+				Invalidate();
+			});
+			cms.Items.Add(miRotPhoto);
+
+			ToolStripMenuItem miFraming = new ToolStripMenuItem($"🖼 Enquadramento (Framing / LightBurn)...", null, (s, ev) =>
+			{
+				LightBurnFramingForm.CreateAndShowDialog(Core);
+			});
+			cms.Items.Add(miFraming);
+
+			cms.Show(this, screenPos);
+		}
+
+		private void ToggleLaser1Percent()
+		{
+			mIsLaserGuideOn = !mIsLaserGuideOn;
+			if (mIsLaserGuideOn)
+			{
+				int maxPwm = (int)(GrblCore.Configuration != null ? GrblCore.Configuration.MaxPWM : 1000);
+				int pwr = Math.Max(1, (int)Math.Round(maxPwm * 0.01));
+				Core?.ExecuteCustomCode($"M3 S{pwr}");
+			}
+			else
+			{
+				Core?.ExecuteCustomCode("M5 S0");
+			}
+			if (btnLaser1Pct != null)
+			{
+				btnLaser1Pct.BackColor = mIsLaserGuideOn ? ColorScheme.PressedButtons : Color.FromArgb(40, 50, 65);
+				btnLaser1Pct.Text = mIsLaserGuideOn ? "💡 Laser ON" : "💡 Laser 1%";
+			}
+		}
+
+		private void InitializePositioningBar()
+		{
+			btnTogglePosBar = new Button
+			{
+				Text = "🎯 Posicionar",
+				Size = new Size(110, 26),
+				Location = new Point(Math.Max(10, Width - 120), Math.Max(10, Height - 36)),
+				Anchor = AnchorStyles.Bottom | AnchorStyles.Right,
+				FlatStyle = FlatStyle.Flat,
+				BackColor = Color.FromArgb(220, 30, 41, 59),
+				ForeColor = Color.White,
+				Font = new Font("Segoe UI", 8.5f, FontStyle.Bold),
+				Cursor = Cursors.Hand
+			};
+			btnTogglePosBar.FlatAppearance.BorderColor = Color.FromArgb(70, 85, 110);
+			btnTogglePosBar.Click += (s, e) =>
+			{
+				pnlPositionBar.Visible = !pnlPositionBar.Visible;
+				if (pnlPositionBar.Visible)
+				{
+					pnlPositionBar.BringToFront();
+					UpdatePositionBarCoords();
+				}
+			};
+
+			pnlPositionBar = new Panel
+			{
+				Size = new Size(330, 195),
+				Location = new Point(Math.Max(10, Width - 345), Math.Max(10, Height - 240)),
+				Anchor = AnchorStyles.Bottom | AnchorStyles.Right,
+				BackColor = Color.FromArgb(235, 20, 25, 35),
+				BorderStyle = BorderStyle.FixedSingle,
+				Visible = false
+			};
+
+			Label lblHeader = new Label
+			{
+				Text = "🎯 Posicionamento do Trabalho",
+				Font = new Font("Segoe UI", 9f, FontStyle.Bold),
+				ForeColor = Color.Cyan,
+				Location = new Point(8, 6),
+				Size = new Size(270, 20)
+			};
+
+			Button btnCloseBar = new Button
+			{
+				Text = "✕",
+				Size = new Size(22, 20),
+				Location = new Point(300, 5),
+				FlatStyle = FlatStyle.Flat,
+				ForeColor = Color.Silver,
+				BackColor = Color.Transparent,
+				Font = new Font("Segoe UI", 8f)
+			};
+			btnCloseBar.FlatAppearance.BorderSize = 0;
+			btnCloseBar.Click += (s, e) => pnlPositionBar.Visible = false;
+
+			Label lblX = new Label { Text = "X:", Location = new Point(8, 32), Size = new Size(20, 20), ForeColor = Color.White, Font = new Font("Segoe UI", 8.5f) };
+			numPosX = new NumericUpDown
+			{
+				Location = new Point(30, 30),
+				Size = new Size(70, 22),
+				DecimalPlaces = 1,
+				Minimum = -2000,
+				Maximum = 2000,
+				BackColor = Color.FromArgb(30, 41, 59),
+				ForeColor = Color.White
+			};
+
+			Label lblY = new Label { Text = "Y:", Location = new Point(108, 32), Size = new Size(20, 20), ForeColor = Color.White, Font = new Font("Segoe UI", 8.5f) };
+			numPosY = new NumericUpDown
+			{
+				Location = new Point(130, 30),
+				Size = new Size(70, 22),
+				DecimalPlaces = 1,
+				Minimum = -2000,
+				Maximum = 2000,
+				BackColor = Color.FromArgb(30, 41, 59),
+				ForeColor = Color.White
+			};
+
+			Button btnApply = new Button
+			{
+				Text = "Ir",
+				Location = new Point(208, 29),
+				Size = new Size(40, 24),
+				FlatStyle = FlatStyle.Flat,
+				BackColor = Color.FromArgb(40, 70, 110),
+				ForeColor = Color.White,
+				Font = new Font("Segoe UI", 8f)
+			};
+			btnApply.Click += (s, e) =>
+			{
+				Core?.MoveLoadedFileTo(numPosX.Value, numPosY.Value, true);
+			};
+
+			Button btnModeDrag = new Button
+			{
+				Text = "✋",
+				Location = new Point(252, 29),
+				Size = new Size(32, 24),
+				FlatStyle = FlatStyle.Flat,
+				BackColor = mJobMoveMode ? ColorScheme.PressedButtons : Color.FromArgb(40, 50, 65),
+				ForeColor = Color.White,
+				Font = new Font("Segoe UI", 9f)
+			};
+			btnModeDrag.Click += (s, e) =>
+			{
+				mJobMoveMode = !mJobMoveMode;
+				btnModeDrag.BackColor = mJobMoveMode ? ColorScheme.PressedButtons : Color.FromArgb(40, 50, 65);
+				Invalidate();
+			};
+
+			// Nudges row
+			FlowLayoutPanel pnlNudges = new FlowLayoutPanel
+			{
+				Location = new Point(6, 58),
+				Size = new Size(318, 28),
+				WrapContents = false
+			};
+
+			Action<string, decimal, decimal> addNudge = (txt, dx, dy) =>
+			{
+				Button btnNudge = new Button
+				{
+					Text = txt,
+					Size = new Size(38, 24),
+					Margin = new Padding(1),
+					FlatStyle = FlatStyle.Flat,
+					BackColor = Color.FromArgb(35, 45, 60),
+					ForeColor = Color.White,
+					Font = new Font("Segoe UI", 7.5f)
+				};
+				btnNudge.FlatAppearance.BorderColor = Color.FromArgb(60, 75, 95);
+				btnNudge.Click += (s, e) =>
+				{
+					Core?.TranslateLoadedFile(dx, dy);
+					UpdatePositionBarCoords();
+				};
+				pnlNudges.Controls.Add(btnNudge);
+			};
+
+			addNudge("◄10", -10m, 0m);
+			addNudge("◄1", -1m, 0m);
+			addNudge("1►", 1m, 0m);
+			addNudge("10►", 10m, 0m);
+			addNudge("▲10", 0m, 10m);
+			addNudge("▲1", 0m, 1m);
+			addNudge("1▼", 0m, -1m);
+			addNudge("10▼", 0m, -10m);
+
+			// Action buttons row
+			FlowLayoutPanel pnlActions = new FlowLayoutPanel
+			{
+				Location = new Point(6, 90),
+				Size = new Size(318, 30),
+				WrapContents = false
+			};
+
+			Button btnCenterCamera = new Button
+			{
+				Text = "🎯 Câmera",
+				Size = new Size(74, 24),
+				Margin = new Padding(1),
+				FlatStyle = FlatStyle.Flat,
+				BackColor = Color.FromArgb(30, 58, 85),
+				ForeColor = Color.Cyan,
+				Font = new Font("Segoe UI", 8f)
+			};
+			btnCenterCamera.Click += (s, e) =>
+			{
+				float bedW = CameraOverlayManager.BedWidthMm * CameraOverlayManager.ScaleX;
+				float bedH = CameraOverlayManager.BedHeightMm * CameraOverlayManager.ScaleY;
+				float targetX = CameraOverlayManager.OffsetX_Mm + bedW / 2f;
+				float targetY = CameraOverlayManager.OffsetY_Mm + bedH / 2f;
+				Core?.MoveLoadedFileTo((decimal)targetX, (decimal)targetY, true);
+				UpdatePositionBarCoords();
+			};
+
+			Button btnAlignLaser = new Button
+			{
+				Text = "📍 Laser",
+				Size = new Size(62, 24),
+				Margin = new Padding(1),
+				FlatStyle = FlatStyle.Flat,
+				BackColor = Color.FromArgb(30, 58, 85),
+				ForeColor = Color.White,
+				Font = new Font("Segoe UI", 8f)
+			};
+			btnAlignLaser.Click += (s, e) =>
+			{
+				Core?.MoveLoadedFileTo((decimal)mLastWPos.X, (decimal)mLastWPos.Y, true);
+				UpdatePositionBarCoords();
+			};
+
+			btnLaser1Pct = new Button
+			{
+				Text = "💡 Laser 1%",
+				Size = new Size(82, 24),
+				Margin = new Padding(1),
+				FlatStyle = FlatStyle.Flat,
+				BackColor = Color.FromArgb(40, 50, 65),
+				ForeColor = Color.Yellow,
+				Font = new Font("Segoe UI", 8f)
+			};
+			btnLaser1Pct.Click += (s, e) =>
+			{
+				ToggleLaser1Percent();
+			};
+
+			Button btnReset = new Button
+			{
+				Text = "↺ (0,0)",
+				Size = new Size(54, 24),
+				Margin = new Padding(1),
+				FlatStyle = FlatStyle.Flat,
+				BackColor = Color.FromArgb(45, 30, 40),
+				ForeColor = Color.Silver,
+				Font = new Font("Segoe UI", 8f)
+			};
+			btnReset.Click += (s, e) =>
+			{
+				Core?.ResetLoadedFilePosition();
+				UpdatePositionBarCoords();
+			};
+
+			pnlActions.Controls.Add(btnCenterCamera);
+			pnlActions.Controls.Add(btnAlignLaser);
+			pnlActions.Controls.Add(btnLaser1Pct);
+			pnlActions.Controls.Add(btnReset);
+
+			// Rotate row
+			FlowLayoutPanel pnlRotateRow = new FlowLayoutPanel
+			{
+				Location = new Point(6, 122),
+				Size = new Size(318, 28),
+				WrapContents = false
+			};
+
+			Button btnRotPhoto = new Button
+			{
+				Text = "📷 Girar Foto (90°)",
+				Size = new Size(152, 24),
+				Margin = new Padding(1),
+				FlatStyle = FlatStyle.Flat,
+				BackColor = Color.FromArgb(30, 58, 85),
+				ForeColor = Color.Yellow,
+				Font = new Font("Segoe UI", 7.5f, FontStyle.Bold),
+				Cursor = Cursors.Hand
+			};
+			btnRotPhoto.Click += (s, e) =>
+			{
+				CameraOverlayManager.RotatePhoto(90);
+				Invalidate();
+			};
+
+			Button btnRotJob = new Button
+			{
+				Text = "🔄 Girar Desenho (90°)",
+				Size = new Size(156, 24),
+				Margin = new Padding(1),
+				FlatStyle = FlatStyle.Flat,
+				BackColor = Color.FromArgb(30, 58, 85),
+				ForeColor = Color.Cyan,
+				Font = new Font("Segoe UI", 7.5f, FontStyle.Bold),
+				Cursor = Cursors.Hand
+			};
+			btnRotJob.Click += (s, e) =>
+			{
+				Core?.RotateLoadedFile(90m);
+				UpdatePositionBarCoords();
+			};
+
+			pnlRotateRow.Controls.Add(btnRotPhoto);
+			pnlRotateRow.Controls.Add(btnRotJob);
+
+			Label lblTip = new Label
+			{
+				Text = "💡 Dica: Clique direito na mesa ou segure SHIFT + arraste com mouse!",
+				Location = new Point(6, 154),
+				Size = new Size(318, 30),
+				Font = new Font("Segoe UI", 7.5f, FontStyle.Italic),
+				ForeColor = Color.FromArgb(148, 163, 184)
+			};
+
+			pnlPositionBar.Controls.Add(lblHeader);
+			pnlPositionBar.Controls.Add(btnCloseBar);
+			pnlPositionBar.Controls.Add(lblX);
+			pnlPositionBar.Controls.Add(numPosX);
+			pnlPositionBar.Controls.Add(lblY);
+			pnlPositionBar.Controls.Add(numPosY);
+			pnlPositionBar.Controls.Add(btnApply);
+			pnlPositionBar.Controls.Add(btnModeDrag);
+			pnlPositionBar.Controls.Add(pnlNudges);
+			pnlPositionBar.Controls.Add(pnlActions);
+			pnlPositionBar.Controls.Add(pnlRotateRow);
+			pnlPositionBar.Controls.Add(lblTip);
+
+			Controls.Add(pnlPositionBar);
+			Controls.Add(btnTogglePosBar);
+			pnlPositionBar.BringToFront();
+			btnTogglePosBar.BringToFront();
+		}
+
+		private void UpdatePositionBarCoords()
+		{
+			try
+			{
+				if (numPosX != null && numPosY != null && Core?.LoadedFile?.Range?.DrawingRange?.ValidRange == true)
+				{
+					decimal cx = (decimal)Core.LoadedFile.Range.DrawingRange.Center.X;
+					decimal cy = (decimal)Core.LoadedFile.Range.DrawingRange.Center.Y;
+					if (numPosX.Value != cx) numPosX.Value = Math.Max(numPosX.Minimum, Math.Min(numPosX.Maximum, cx));
+					if (numPosY.Value != cy) numPosY.Value = Math.Max(numPosY.Minimum, Math.Min(numPosY.Maximum, cy));
+				}
+			}
+			catch { }
 		}
 
 		private void GrblSceneControl_MouseWheel(object sender, MouseEventArgs e)
@@ -1035,7 +1647,11 @@ namespace LaserGRBL.UserControls
 		{
 			DisposeGrbl3D();
 			mReload = true;
-			AutoSizeDrawing();
+			if (filename != "Translated")
+				AutoSizeDrawing();
+			else
+				Invalidate();
+			UpdatePositionBarCoords();
 		}
 		
 		public void AutoSizeDrawing()

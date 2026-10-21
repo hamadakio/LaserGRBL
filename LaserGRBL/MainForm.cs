@@ -1,4 +1,4 @@
-﻿//Copyright (c) 2016-2021 Diego Settimi - https://github.com/arkypita/
+//Copyright (c) 2016-2021 Diego Settimi - https://github.com/arkypita/
 
 // This program is free software; you can redistribute it and/or modify  it under the terms of the GPLv3 General Public License as published by  the Free Software Foundation; either version 3 of the License, or (at  your option) any later version.
 // This program is distributed in the hope that it will be useful, but  WITHOUT ANY WARRANTY; without even the implied warranty of  MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the GPLv3  General Public License for more details.
@@ -32,10 +32,20 @@ namespace LaserGRBL
 		private readonly string[] args;
 		private readonly List<ToolStripMenuItem> mLineWidthMenu;
 
+		private ToolStripMenuItem MnLightBurn;
+		private ToolStripMenuItem mnLayers;
+		private ToolStripMenuItem mnFraming;
+		private ToolStripMenuItem mnMaterialTest;
+		private ToolStripMenuItem mnQuickShapes;
+		private ToolStripMenuItem mnRotary;
+		private ToolStripMenuItem mnCamera;
+		private ToolStripMenuItem materialDarkToolStripMenuItem;
+		private ToolStripMenuItem materialLightToolStripMenuItem;
+
 
         public MainForm()
 		{
-			ColorScheme.CurrentScheme = Settings.GetObject("Color Schema", Scheme.CADDark);
+			ColorScheme.CurrentScheme = Settings.GetObject("Color Schema", Scheme.MaterialDark);
 
 			InitializeComponent();
 			ExceptionManager.ParentMain = this;
@@ -50,7 +60,8 @@ namespace LaserGRBL
 			};
 
 			MnOrtur.Visible = false;
-			MMn.Renderer = new MMnRenderer();
+			MMn.Renderer = new LaserGRBL.UserControls.MaterialMenuRenderer();
+			StatusBar.Renderer = new LaserGRBL.UserControls.MaterialMenuRenderer();
 
 			splitContainer1.FixedPanel = FixedPanel.Panel1;
 			splitContainer1.SplitterDistance = Settings.GetObject("MainForm Splitter Position", 260);
@@ -120,6 +131,7 @@ namespace LaserGRBL
 
 			GitHub.NewVersion += GitHub_NewVersion;
 
+			InitializeLightBurnAndMaterialFeatures();
 			AssignIcons();
 			RefreshColorSchema(); //include RefreshOverride();
 			RefreshFormTitle();
@@ -145,12 +157,73 @@ namespace LaserGRBL
 				IssueDetectorForm.CreateAndShowDialog(this, issue);
 		}
 
+		private void InitializeLightBurnAndMaterialFeatures()
+		{
+			// Material scheme dropdown items
+			materialDarkToolStripMenuItem = new ToolStripMenuItem("Material Dark");
+			materialDarkToolStripMenuItem.Tag = Scheme.MaterialDark;
+			materialDarkToolStripMenuItem.Click += styleToolStripMenuItem_Click;
+
+			materialLightToolStripMenuItem = new ToolStripMenuItem("Material Light");
+			materialLightToolStripMenuItem.Tag = Scheme.MaterialLight;
+			materialLightToolStripMenuItem.Click += styleToolStripMenuItem_Click;
+
+			schemaToolStripMenuItem.DropDownItems.Insert(0, materialDarkToolStripMenuItem);
+			schemaToolStripMenuItem.DropDownItems.Insert(1, materialLightToolStripMenuItem);
+			schemaToolStripMenuItem.DropDownItems.Insert(2, new ToolStripSeparator());
+
+			// Create LightBurn Tools top menu
+			MnLightBurn = new ToolStripMenuItem("LightBurn Tools");
+
+			mnLayers = new ToolStripMenuItem("Camadas e Cortes (Layers & Cuts)...", null, (s, e) => {
+				LightBurn.LightBurnLayersForm.CreateAndShowDialog(Core);
+			}) { ShortcutKeys = Keys.Control | Keys.L, ShowShortcutKeys = true };
+
+			mnFraming = new ToolStripMenuItem("Enquadramento de Contorno (Rubber-Band Framing)...", null, (s, e) => {
+				LightBurn.LightBurnFramingForm.CreateAndShowDialog(Core);
+			}) { ShortcutKeys = Keys.Control | Keys.F, ShowShortcutKeys = true };
+
+			mnMaterialTest = new ToolStripMenuItem("Matriz de Teste de Materiais (Power vs Speed)...", null, (s, e) => {
+				LightBurn.MaterialTestGeneratorForm.CreateAndShowDialog(Core);
+			}) { ShortcutKeys = Keys.Control | Keys.Shift | Keys.M, ShowShortcutKeys = true };
+
+			mnQuickShapes = new ToolStripMenuItem("Formas Rápidas e Texto (Quick Shapes & Text)...", null, (s, e) => {
+				LightBurn.QuickShapesForm.CreateAndShowDialog(Core);
+			}) { ShortcutKeys = Keys.Control | Keys.Shift | Keys.Q, ShowShortcutKeys = true };
+
+			mnRotary = new ToolStripMenuItem("Configuração de Eixo Rotativo (Rotary Setup)...", null, (s, e) => {
+				LightBurn.RotarySetupForm.CreateAndShowDialog(Core);
+			}) { ShortcutKeys = Keys.Control | Keys.Shift | Keys.R, ShowShortcutKeys = true };
+
+			mnCamera = new ToolStripMenuItem("Câmera do Celular / WiFi (Camera Overlay)...", null, (s, e) => {
+				Camera.CameraManagerForm.CreateAndShowDialog(Core);
+			}) { ShortcutKeys = Keys.Control | Keys.Shift | Keys.C, ShowShortcutKeys = true };
+
+			MnLightBurn.DropDownItems.Add(mnLayers);
+			MnLightBurn.DropDownItems.Add(mnFraming);
+			MnLightBurn.DropDownItems.Add(new ToolStripSeparator());
+			MnLightBurn.DropDownItems.Add(mnMaterialTest);
+			MnLightBurn.DropDownItems.Add(mnQuickShapes);
+			MnLightBurn.DropDownItems.Add(new ToolStripSeparator());
+			MnLightBurn.DropDownItems.Add(mnRotary);
+			MnLightBurn.DropDownItems.Add(new ToolStripSeparator());
+			MnLightBurn.DropDownItems.Add(mnCamera);
+
+			int insertIndex = MMn.Items.IndexOf(MnGenerate);
+			if (insertIndex >= 0)
+				MMn.Items.Insert(insertIndex + 1, MnLightBurn);
+			else
+				MMn.Items.Add(MnLightBurn);
+		}
+
 		private void RefreshColorSchema()
 		{
 			MMn.BackColor = BackColor = StatusBar.BackColor = ColorScheme.FormBackColor;
 			MMn.ForeColor = ForeColor = ColorScheme.FormForeColor;
 			List<ToolStripMenuItem> items = new List<ToolStripMenuItem>()
             {
+				materialDarkToolStripMenuItem,
+				materialLightToolStripMenuItem,
                 cadStyleToolStripMenuItem,
 				cadDarkToolStripMenuItem,
 				blueLaserToolStripMenuItem,
@@ -159,7 +232,8 @@ namespace LaserGRBL
 				hackerToolStripMenuItem,
 				nightyToolStripMenuItem
 			};
-			foreach (ToolStripMenuItem item in items) item.Checked = ColorScheme.CurrentScheme == (Scheme)item.Tag;
+			foreach (ToolStripMenuItem item in items) 
+				if (item != null) item.Checked = ColorScheme.CurrentScheme == (Scheme)item.Tag;
             TTLinkToNews.LinkColor = ColorScheme.LinkColor;
 			TTLinkToNews.VisitedLinkColor = ColorScheme.VisitedLinkColor;
 			ThemeMgr.SetTheme(this, true);
@@ -241,6 +315,21 @@ namespace LaserGRBL
 			IconsMgr.PrepareMenuItem(autosizeModeToolStripMenuItem, "mdi-resize");
 			if (!IconsMgr.LegacyIcons)
 			{
+				if (MnLightBurn != null)
+				{
+					IconsMgr.PrepareMenuItem(MnLightBurn, "mdi-laser-pointer");
+					IconsMgr.PrepareMenuItem(mnLayers, "mdi-layers");
+					IconsMgr.PrepareMenuItem(mnFraming, "mdi-crop-free");
+					IconsMgr.PrepareMenuItem(mnMaterialTest, "mdi-grid");
+					IconsMgr.PrepareMenuItem(mnQuickShapes, "mdi-shape");
+					IconsMgr.PrepareMenuItem(mnRotary, "mdi-cylinder");
+					IconsMgr.PrepareMenuItem(mnCamera, "mdi-camera-wireless");
+				}
+				if (materialDarkToolStripMenuItem != null)
+					IconsMgr.PrepareMenuItem(materialDarkToolStripMenuItem, "mdi-weather-night");
+				if (materialLightToolStripMenuItem != null)
+					IconsMgr.PrepareMenuItem(materialLightToolStripMenuItem, "mdi-white-balance-sunny");
+
 				IconsMgr.PrepareMenuItem(MnGrbl, "mdi-hammer-wrench");
 				IconsMgr.PrepareMenuItem(fileToolStripMenuItem, "mdi-file-document-outline");
 				IconsMgr.PrepareMenuItem(MnGenerate, "mdi-flask");
@@ -279,12 +368,12 @@ namespace LaserGRBL
 
 		private void MainForm_Load(object sender, EventArgs e)
 		{
-			bool canrun = Settings.GetObject("IsDisclamerAccepted", false);
+			bool canrun = Settings.GetObject("IsDisclamerAccepted", true);
 			if (!canrun)
 			{
 				using (LegalDisclaimer lds = new LegalDisclaimer())
 				{
-					lds.ShowDialog(FormsHelper.MainForm);
+					lds.ShowDialog(this);
 					if (lds.accepted)
 					{
 						canrun = true;

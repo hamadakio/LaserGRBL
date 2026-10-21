@@ -1,4 +1,4 @@
-﻿//Copyright (c) 2016-2021 Diego Settimi - https://github.com/arkypita/
+//Copyright (c) 2016-2021 Diego Settimi - https://github.com/arkypita/
 
 // This program is free software; you can redistribute it and/or modify  it under the terms of the GPLv3 General Public License as published by  the Free Software Foundation; either version 3 of the License, or (at  your option) any later version.
 // This program is distributed in the hope that it will be useful, but  WITHOUT ANY WARRANTY; without even the implied warranty of  MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the GPLv3  General Public License for more details.
@@ -237,7 +237,9 @@ namespace Tools
 					catch (Exception ex)
 					{
 						err = ex;
-						System.Diagnostics.Debug.WriteLine(string.Format("Serialization exception in {0} Position {1}", filename, FinalStream.Position));
+						long pos = -1;
+						try { if (FinalStream != null && FinalStream.CanSeek) pos = FinalStream.Position; } catch { }
+						System.Diagnostics.Debug.WriteLine(string.Format("Serialization exception in {0} Position {1}", filename, pos));
 
 						try
 						{

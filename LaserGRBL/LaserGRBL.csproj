@@ -1,4 +1,4 @@
-﻿<?xml version="1.0" encoding="utf-8"?>
+<?xml version="1.0" encoding="utf-8"?>
 <Project ToolsVersion="4.0" DefaultTargets="Build" xmlns="http://schemas.microsoft.com/developer/msbuild/2003">
   <Import Project="$(MSBuildExtensionsPath)\$(MSBuildToolsVersion)\Microsoft.Common.props" Condition="Exists('$(MSBuildExtensionsPath)\$(MSBuildToolsVersion)\Microsoft.Common.props')" />
   <PropertyGroup>
@@ -9,7 +9,7 @@
     <AppDesignerFolder>Properties</AppDesignerFolder>
     <RootNamespace>LaserGRBL</RootNamespace>
     <AssemblyName>LaserGRBL</AssemblyName>
-    <TargetFrameworkVersion>v4.0</TargetFrameworkVersion>
+    <TargetFrameworkVersion>v4.8</TargetFrameworkVersion>
     <FileAlignment>512</FileAlignment>
     <AllowUnsafeBlocks>True</AllowUnsafeBlocks>
     <NoStdLib>False</NoStdLib>
@@ -105,6 +105,9 @@
     <Reference Include="System.XML" />
     <Reference Include="System.Xml.Linq" />
     <Reference Include="WindowsBase" />
+    <Reference Include="QRCoder">
+      <HintPath>lib\QRCoder.dll</HintPath>
+    </Reference>
   </ItemGroup>
   <ItemGroup>
     <Compile Include="Autotrace\AutotraceTest.cs">
@@ -1078,6 +1081,34 @@
     <Compile Include="UserControls\TextInput.Designer.cs">
       <DependentUpon>TextInput.cs</DependentUpon>
     </Compile>
+    <Compile Include="LightBurn\LightBurnLayer.cs" />
+    <Compile Include="LightBurn\LightBurnLayersForm.cs">
+      <SubType>Form</SubType>
+    </Compile>
+    <Compile Include="LightBurn\FramingHelper.cs" />
+    <Compile Include="LightBurn\LightBurnFramingForm.cs">
+      <SubType>Form</SubType>
+    </Compile>
+    <Compile Include="LightBurn\MaterialTestGenerator.cs" />
+    <Compile Include="LightBurn\MaterialTestGeneratorForm.cs">
+      <SubType>Form</SubType>
+    </Compile>
+    <Compile Include="LightBurn\QuickShapesGenerator.cs" />
+    <Compile Include="LightBurn\QuickShapesForm.cs">
+      <SubType>Form</SubType>
+    </Compile>
+    <Compile Include="LightBurn\RotarySetupForm.cs">
+      <SubType>Form</SubType>
+    </Compile>
+    <Compile Include="Camera\CameraOverlayManager.cs" />
+    <Compile Include="Camera\LaserCameraServer.cs" />
+    <Compile Include="Camera\CameraCalibrationForm.cs">
+      <SubType>Form</SubType>
+    </Compile>
+    <Compile Include="Camera\CameraManagerForm.cs">
+      <SubType>Form</SubType>
+    </Compile>
+    <Compile Include="UserControls\MaterialRenderer.cs" />
     <Compile Include="UserControls\ThemeMgr.cs" />
     <Compile Include="UserControls\UsageClassPreview.cs">
       <SubType>UserControl</SubType>

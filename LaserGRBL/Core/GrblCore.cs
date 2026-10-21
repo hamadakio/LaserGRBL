@@ -1,4 +1,4 @@
-﻿//Copyright (c) 2016-2021 Diego Settimi - https://github.com/arkypita/
+//Copyright (c) 2016-2021 Diego Settimi - https://github.com/arkypita/
 
 // This program is free software; you can redistribute it and/or modify  it under the terms of the GPLv3 General Public License as published by  the Free Software Foundation; either version 3 of the License, or (at  your option) any later version.
 // This program is distributed in the hope that it will be useful, but  WITHOUT ANY WARRANTY; without even the implied warranty of  MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the GPLv3  General Public License for more details.
@@ -640,6 +640,30 @@ namespace LaserGRBL
 
 		public GrblFile LoadedFile
 		{ get { return file; } }
+
+		public void TranslateLoadedFile(decimal dx, decimal dy)
+		{
+			if (LoadedFile == null || LoadedFile.Count == 0) return;
+			LoadedFile.Translate(dx, dy);
+		}
+
+		public void MoveLoadedFileTo(decimal targetX, decimal targetY, bool center = false)
+		{
+			if (LoadedFile == null || LoadedFile.Count == 0) return;
+			LoadedFile.MoveTo(targetX, targetY, center);
+		}
+
+		public void ResetLoadedFilePosition()
+		{
+			if (LoadedFile == null || LoadedFile.Count == 0) return;
+			LoadedFile.ResetToOrigin();
+		}
+
+		public void RotateLoadedFile(decimal angleDeg = 90m)
+		{
+			if (LoadedFile == null || LoadedFile.Count == 0) return;
+			LoadedFile.Rotate(angleDeg);
+		}
 
 		public void ReOpenFile()
 		{
