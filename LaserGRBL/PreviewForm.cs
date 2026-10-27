@@ -1,4 +1,4 @@
-﻿//Copyright (c) 2016-2021 Diego Settimi - https://github.com/arkypita/
+//Copyright (c) 2016-2021 Diego Settimi - https://github.com/arkypita/
 
 // This program is free software; you can redistribute it and/or modify  it under the terms of the GPLv3 General Public License as published by  the Free Software Foundation; either version 3 of the License, or (at  your option) any later version.
 // This program is distributed in the hope that it will be useful, but  WITHOUT ANY WARRANTY; without even the implied warranty of  MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the GPLv3  General Public License for more details.
@@ -157,6 +157,11 @@ namespace LaserGRBL
                         case "Corner": IconsMgr.PrepareButton(ib, "custom-corner", BtnStop.Size); break;
                         case "Focus": IconsMgr.PrepareButton(ib, "custom-focus", BtnStop.Size); break;
                         case "Blink": IconsMgr.PrepareButton(ib, "custom-blink", BtnStop.Size); break;
+                        case "Zero":
+                        case "SetZero": IconsMgr.PrepareButton(ib, "custom-zeroing", BtnStop.Size); break;
+                        case "GoZero":
+                        case "Home": IconsMgr.PrepareButton(ib, "custom-home", BtnStop.Size); break;
+                        case "Bed300": IconsMgr.PrepareButton(ib, "custom-corner", BtnStop.Size); break;
                     }
                     string mdiIconCode = $"mdi-{ib.Caption}";
                     if (IconsMgr.IconsLoader.Contains(mdiIconCode))
@@ -295,7 +300,20 @@ namespace LaserGRBL
                     return;
 
                 if (cb.ButtonType == CustomButton.ButtonTypes.Button && !PositionUnlocked)
+                {
+                    if (cb.Caption == "Bed300" || (cb.GCode != null && cb.GCode.Contains("$130=300") && cb.GCode.Contains("$131=300")))
+                    {
+                        Core.MachineBedWidth.Value = 300f;
+                        Core.MachineBedHeight.Value = 300f;
+                        Core.ShowMachineBed.Value = true;
+                        Core.EnforceBedLimits.Value = true;
+                        Camera.CameraOverlayManager.BedWidthMm = 300f;
+                        Camera.CameraOverlayManager.BedHeightMm = 300f;
+                        (form?.GrblPanel as UserControls.GrblPanel3D)?.ZoomToBed();
+                        (form?.GrblPanel as UserControls.GrblPanel3D)?.Invalidate();
+                    }
                     Core.ExecuteCustomCode(cb.GCode);
+                }
 
                 if (cb.ButtonType == CustomButton.ButtonTypes.TwoStateButton && !PositionUnlocked)
                 {

@@ -1,4 +1,4 @@
-﻿//Copyright (c) 2016-2021 Diego Settimi - https://github.com/arkypita/
+//Copyright (c) 2016-2021 Diego Settimi - https://github.com/arkypita/
 
 // This program is free software; you can redistribute it and/or modify  it under the terms of the GPLv3 General Public License as published by  the Free Software Foundation; either version 3 of the License, or (at  your option) any later version.
 // This program is distributed in the hope that it will be useful, but  WITHOUT ANY WARRANTY; without even the implied warranty of  MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the GPLv3  General Public License for more details.
@@ -415,6 +415,35 @@ namespace LaserGRBL.RasterConverter
 			mOriginal.RotateFlip(RotateFlipType.RotateNoneFlipX);
 			ResizeRecalc();
 			Refresh();
+		}
+
+		public Bitmap PristineOriginal => mTrueOriginal;
+
+		public Bitmap WorkingImage
+		{
+			get { return mOriginal; }
+			set
+			{
+				if (value != null)
+				{
+					Bitmap old = mOriginal;
+					mOriginal = value.Clone(new Rectangle(0, 0, value.Width, value.Height), System.Drawing.Imaging.PixelFormat.Format32bppArgb);
+					old?.Dispose();
+					mGrayScale = TestGrayScale(mOriginal);
+					ResizeRecalc();
+					Refresh();
+				}
+			}
+		}
+
+		public void ApplyPhotoStudioEnhancement(Bitmap newWorkingBmp, ImageTransform.DitheringMode dither, decimal quality)
+		{
+			Suspend();
+			WorkingImage = newWorkingBmp;
+			SelectedTool = Tool.Dithering;
+			DitheringMode = dither;
+			Quality = quality;
+			Resume();
 		}
 
 		private void ResizeRecalc()

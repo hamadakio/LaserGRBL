@@ -947,6 +947,16 @@
     <Compile Include="RasterConverter\Dithering\StuckiDithering.cs" />
     <Compile Include="RasterConverter\ImageProcessor.cs" />
     <Compile Include="RasterConverter\ImageTransform.cs" />
+    <Compile Include="RasterConverter\PhotoEnhancer.cs" />
+    <Compile Include="RasterConverter\PhotoStudioForm.cs">
+      <SubType>Form</SubType>
+    </Compile>
+    <Compile Include="RasterConverter\PhotoStudioForm.Designer.cs">
+      <DependentUpon>PhotoStudioForm.cs</DependentUpon>
+    </Compile>
+    <Compile Include="RasterConverter\CircleMaskForm.cs">
+      <SubType>Form</SubType>
+    </Compile>
     <Compile Include="RasterConverter\RasterToLaserForm.cs">
       <SubType>Form</SubType>
     </Compile>
@@ -1098,6 +1108,10 @@
       <SubType>Form</SubType>
     </Compile>
     <Compile Include="LightBurn\RotarySetupForm.cs">
+      <SubType>Form</SubType>
+    </Compile>
+    <Compile Include="LightBurn\KeychainJigManager.cs" />
+    <Compile Include="LightBurn\KeychainJigForm.cs">
       <SubType>Form</SubType>
     </Compile>
     <Compile Include="Camera\CameraOverlayManager.cs" />

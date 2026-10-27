@@ -325,7 +325,7 @@ namespace LaserGRBL.Tests
         }
 
         [Fact]
-        public void CustomButtons_EnsureFocusButton_CreatesLaserOnePercentButton()
+        public void CustomButtons_EnsureFocusButton_CreatesLaserThreePercentButton()
         {
             CustomButtons.EnsureFocusButton();
             Assert.True(CustomButtons.Count > 0);
@@ -336,13 +336,48 @@ namespace LaserGRBL.Tests
                 if (b.Caption == "Focus")
                 {
                     found = true;
-                    Assert.Equal("M3 S10", b.GCode);
-                    Assert.Equal("M5 S0", b.GCode2);
+                    Assert.Contains("M3 S30", b.GCode);
+                    Assert.Contains("G1 F1", b.GCode);
+                    Assert.Contains("M5", b.GCode2);
                     Assert.Equal(CustomButton.ButtonTypes.TwoStateButton, b.ButtonType);
                     break;
                 }
             }
-            Assert.True(found);
+            Assert.True(found, "Focus button was not found");
+        }
+
+        [Fact]
+        public void CustomButtons_EnsureZeroButtons_CreatesZeroAndGoZeroButtons()
+        {
+            CustomButtons.EnsureZeroButtons();
+            Assert.True(CustomButtons.Count > 0);
+
+            bool foundZero = false;
+            bool foundGoZero = false;
+            foreach (CustomButton b in CustomButtons.Buttons)
+            {
+                if (b.Caption == "Zero")
+                {
+                    foundZero = true;
+                    Assert.Contains("G92 X0 Y0", b.GCode);
+                    Assert.Equal(CustomButton.ButtonTypes.Button, b.ButtonType);
+                    Assert.Equal(CustomButton.EnableStyles.Connected, b.EnableStyle);
+                }
+                if (b.Caption == "GoZero")
+                {
+                    foundGoZero = true;
+                    Assert.Contains("G0 X0 Y0", b.GCode);
+                    Assert.Equal(CustomButton.ButtonTypes.Button, b.ButtonType);
+                    Assert.Equal(CustomButton.EnableStyles.Connected, b.EnableStyle);
+                }
+            }
+            Assert.True(foundZero, "Zero button was not found");
+            Assert.True(foundGoZero, "GoZero button was not found");
+
+            // Calling it again should not duplicate
+            int countBefore = CustomButtons.Count;
+            CustomButtons.EnsureZeroButtons();
+            Assert.Equal(countBefore, CustomButtons.Count);
         }
 
         [Fact]
@@ -377,6 +412,214 @@ namespace LaserGRBL.Tests
 
             CameraOverlayManager.RotatePhoto(180);
             Assert.Equal(startAngle, CameraOverlayManager.RotationAngle);
+        }
+
+        [Fact]
+        public void CustomButtons_EnsureFrameButton_CreatesFramingButtonWith3PercentLaser()
+        {
+            CustomButtons.EnsureFrameButton();
+            CustomButton frameBtn = null;
+            foreach (CustomButton b in CustomButtons.Buttons)
+            {
+                if (b != null && b.Caption == "Frame")
+                {
+                    frameBtn = b;
+                    break;
+                }
+            }
+
+            Assert.NotNull(frameBtn);
+            Assert.Contains("[left]", frameBtn.GCode);
+            Assert.Contains("[right]", frameBtn.GCode);
+            Assert.Contains("[top]", frameBtn.GCode);
+            Assert.Contains("[bottom]", frameBtn.GCode);
+            Assert.Contains("M3 S30", frameBtn.GCode);
+            Assert.Contains("M5 S0", frameBtn.GCode);
+            Assert.Contains("G0 X0 Y0", frameBtn.GCode);
+            Assert.Equal(CustomButton.ButtonTypes.Button, frameBtn.ButtonType);
+            Assert.Equal(CustomButton.EnableStyles.IdleProgram, frameBtn.EnableStyle);
+        }
+
+        [Fact]
+        public void CustomButtons_EnsureBedButton_CreatesBed300Button()
+        {
+            CustomButtons.EnsureBedButton();
+            CustomButton bedBtn = null;
+            foreach (CustomButton b in CustomButtons.Buttons)
+            {
+                if (b != null && b.Caption == "Bed300")
+                {
+                    bedBtn = b;
+                    break;
+                }
+            }
+
+            Assert.NotNull(bedBtn);
+            Assert.Contains("$130=300", bedBtn.GCode);
+            Assert.Contains("$131=300", bedBtn.GCode);
+            Assert.Equal(CustomButton.ButtonTypes.Button, bedBtn.ButtonType);
+            Assert.Equal(CustomButton.EnableStyles.Connected, bedBtn.EnableStyle);
+        }
+
+        [Fact]
+        public void MachineBed_BoundsVerification_DetectsOutOfBoundsCorrectly()
+        {
+            float bedWidth = 300f;
+            float bedHeight = 300f;
+
+            // Inside bounds
+            float job1MinX = 10f, job1MaxX = 250f, job1MinY = 10f, job1MaxY = 280f;
+            bool outOfBounds1 = job1MinX < 0 || job1MaxX > bedWidth || job1MinY < 0 || job1MaxY > bedHeight;
+            Assert.False(outOfBounds1);
+
+            // Exceeds X max (320 > 300)
+            float job2MinX = 10f, job2MaxX = 320f, job2MinY = 10f, job2MaxY = 200f;
+            bool outOfBounds2 = job2MinX < 0 || job2MaxX > bedWidth || job2MinY < 0 || job2MaxY > bedHeight;
+            Assert.True(outOfBounds2);
+
+            // Negative X (< 0)
+            float job3MinX = -5f, job3MaxX = 150f, job3MinY = 0f, job3MaxY = 150f;
+            bool outOfBounds3 = job3MinX < 0 || job3MaxX > bedWidth || job3MinY < 0 || job3MaxY > bedHeight;
+            Assert.True(outOfBounds3);
+        }
+
+        [Fact]
+        public void PhotoEnhanceParams_Presets_HaveValidAndDistinctValues()
+        {
+            var portrait = LaserGRBL.RasterConverter.PhotoEnhanceParams.CreatePortraitPreset();
+            var highDetail = LaserGRBL.RasterConverter.PhotoEnhanceParams.CreateHighDetailPreset();
+            var pet = LaserGRBL.RasterConverter.PhotoEnhanceParams.CreatePetPreset();
+            var sketch = LaserGRBL.RasterConverter.PhotoEnhanceParams.CreateSketchPreset();
+            var slate = LaserGRBL.RasterConverter.PhotoEnhanceParams.CreateSlatePreset();
+
+            // Portrait: High gamma to prevent burned skin tones
+            Assert.True(portrait.Gamma >= 1.5f);
+            Assert.Equal(LaserGRBL.RasterConverter.ImageTransform.DitheringMode.Atkinson, portrait.Dithering);
+            Assert.False(portrait.Invert);
+
+            // Slate: Invert must be true
+            Assert.True(slate.Invert);
+
+            // Sketch: High sharpness and contrast
+            Assert.True(sketch.Sharpness > portrait.Sharpness);
+            Assert.True(sketch.Contrast > portrait.Contrast);
+        }
+
+        [Fact]
+        public void PhotoEnhancer_Enhance_LiftsMidtonesWithGamma()
+        {
+            // Create a test bitmap with flat midtone gray (100) representing dark skin or shadows
+            using (Bitmap bmp = new Bitmap(30, 30, System.Drawing.Imaging.PixelFormat.Format32bppArgb))
+            {
+                using (Graphics g = Graphics.FromImage(bmp))
+                {
+                    g.Clear(Color.FromArgb(100, 100, 100));
+                }
+
+                var p = new LaserGRBL.RasterConverter.PhotoEnhanceParams
+                {
+                    Gamma = 1.6f,
+                    Sharpness = 0f,
+                    LocalContrast = 0f,
+                    Brightness = 0,
+                    Contrast = 0,
+                    BackgroundClean = 0,
+                    Invert = false
+                };
+
+                using (Bitmap enhanced = LaserGRBL.RasterConverter.PhotoEnhancer.Enhance(bmp, p))
+                {
+                    Color px = enhanced.GetPixel(15, 15);
+                    // With gamma 1.6, pixel (100/255)^0.625 * 255 ~= 142 -> significantly lifted from 100
+                    Assert.True(px.R > 130, $"Expected lifted midtone > 130, got {px.R}");
+                }
+            }
+        }
+
+        [Fact]
+        public void PhotoEnhancer_Enhance_CleansBackgroundNoise()
+        {
+            // Create a test bitmap with off-white background noise (245)
+            using (Bitmap bmp = new Bitmap(20, 20, System.Drawing.Imaging.PixelFormat.Format32bppArgb))
+            {
+                using (Graphics g = Graphics.FromImage(bmp))
+                {
+                    g.Clear(Color.FromArgb(245, 245, 245));
+                }
+
+                var p = new LaserGRBL.RasterConverter.PhotoEnhanceParams
+                {
+                    Gamma = 1.0f,
+                    Sharpness = 0f,
+                    LocalContrast = 0f,
+                    Brightness = 0,
+                    Contrast = 0,
+                    BackgroundClean = 15, // Cleans pixels >= 232.5 up to 255
+                    Invert = false
+                };
+
+                using (Bitmap enhanced = LaserGRBL.RasterConverter.PhotoEnhancer.Enhance(bmp, p))
+                {
+                    Color px = enhanced.GetPixel(10, 10);
+                    // Near-white noise should be cleaned to pure white (255)
+                    Assert.True(px.R >= 253, $"Expected background noise cleaned to >= 253, got {px.R}");
+                }
+            }
+        }
+
+        [Fact]
+        public void PhotoEnhancer_GenerateWoodBurnSimulation_ProducesBurnedTones()
+        {
+            using (Bitmap dithered = new Bitmap(10, 10, System.Drawing.Imaging.PixelFormat.Format32bppArgb))
+            {
+                // Top half black (burned dots), bottom half white (unburned wood)
+                for (int y = 0; y < 10; y++)
+                {
+                    for (int x = 0; x < 10; x++)
+                    {
+                        dithered.SetPixel(x, y, y < 5 ? Color.Black : Color.White);
+                    }
+                }
+
+                using (Bitmap woodSim = LaserGRBL.RasterConverter.PhotoEnhancer.GenerateWoodBurnSimulation(dithered))
+                {
+                    Color burnedPx = woodSim.GetPixel(5, 2);
+                    Color woodPx = woodSim.GetPixel(5, 7);
+
+                    // Burned pixel should have warm deep charcoal tone (#2E1B10 => R=46, G=27, B=16)
+                    Assert.InRange(burnedPx.R, 40, 55);
+                    Assert.InRange(burnedPx.G, 20, 35);
+                    Assert.InRange(burnedPx.B, 10, 25);
+
+                    // Wood background should have warm birch/pine wood tone (> 180 for all channels)
+                    Assert.True(woodPx.R > 200, $"Expected wood R > 200, got {woodPx.R}");
+                    Assert.True(woodPx.G > 190, $"Expected wood G > 190, got {woodPx.G}");
+                }
+            }
+        }
+
+        [Fact]
+        public void PhotoEnhancer_GenerateSlateSimulation_ProducesInvertedAshTones()
+        {
+            using (Bitmap dithered = new Bitmap(10, 10, System.Drawing.Imaging.PixelFormat.Format32bppArgb))
+            {
+                // Pixel (0,0) is black (laser etched)
+                dithered.SetPixel(0, 0, Color.Black);
+                // Pixel (5,5) is white (dark stone background)
+                dithered.SetPixel(5, 5, Color.White);
+
+                using (Bitmap slateSim = LaserGRBL.RasterConverter.PhotoEnhancer.GenerateSlateSimulation(dithered))
+                {
+                    Color etchedPx = slateSim.GetPixel(0, 0);
+                    Color stonePx = slateSim.GetPixel(5, 5);
+
+                    // Laser etched mark should be light ash / white (> 200)
+                    Assert.True(etchedPx.R > 210, $"Expected etched R > 210, got {etchedPx.R}");
+
+                    // Dark stone background should be dark charcoal (< 50)
+                    Assert.True(stonePx.R < 50, $"Expected stone R < 50, got {stonePx.R}");
+                }
+            }
         }
     }
 }

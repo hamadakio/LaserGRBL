@@ -1,4 +1,4 @@
-﻿//Copyright (c) 2016-2021 Diego Settimi - https://github.com/arkypita/
+//Copyright (c) 2016-2021 Diego Settimi - https://github.com/arkypita/
 
 // This program is free software; you can redistribute it and/or modify  it under the terms of the GPLv3 General Public License as published by  the Free Software Foundation; either version 3 of the License, or (at  your option) any later version.
 // This program is distributed in the hope that it will be useful, but  WITHOUT ANY WARRANTY; without even the implied warranty of  MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the GPLv3  General Public License for more details.
@@ -55,6 +55,8 @@ namespace LaserGRBL.RasterConverter
             IconsMgr.PrepareButton(BtnFill, "mdi-format-color-fill", icoToolSize);
             IconsMgr.PrepareButton(BtnReverse, "mdi-invert-colors", icoToolSize);
             IconsMgr.PrepareButton(BtnOutliner, "mdi-auto-fix", icoToolSize);
+            IconsMgr.PrepareButton(BtnPhotoStudio, "mdi-image-size-select-large", icoToolSize);
+            IconsMgr.PrepareButton(BtnCircleMask, "mdi-circle-outline", icoToolSize);
 
             IP = new ImageProcessor(core, filename, GetImageSize(), append);
 			//PbOriginal.Image = IP.Original;
@@ -331,7 +333,7 @@ namespace LaserGRBL.RasterConverter
                 {
                     "GrayScaleConversion.RasterConversionTool",
                     RbLineToLineTracing.Checked ? ImageProcessor.Tool.Line2Line :
-                    RbDithering.Checked ? ImageProcessor.Tool.Dithering :
+                    (RbDithering.Checked || RbPhotoHD.Checked) ? ImageProcessor.Tool.Dithering :
                     RbCenterline.Checked ? ImageProcessor.Tool.Centerline : ImageProcessor.Tool.Vectorize
                 },
                 {
@@ -430,14 +432,126 @@ namespace LaserGRBL.RasterConverter
             GbParameters.Visible = !RbNoProcessing.Checked;
             GbVectorizeOptions.Visible = RbVectorize.Checked;
 			GbCenterlineOptions.Visible = RbCenterline.Checked;
-			GbLineToLineOptions.Visible = RbLineToLineTracing.Checked || RbDithering.Checked;
+			GbLineToLineOptions.Visible = RbLineToLineTracing.Checked || RbDithering.Checked || RbPhotoHD.Checked;
 			GbPassthrough.Visible = RbNoProcessing.Checked;
-			GbLineToLineOptions.Text = RbLineToLineTracing.Checked ? Strings.Line2LineOptions : Strings.DitheringOptions;
+			GbLineToLineOptions.Text = RbLineToLineTracing.Checked ? Strings.Line2LineOptions : (RbPhotoHD.Checked ? "✨ Opções Foto HD / Dithering" : Strings.DitheringOptions);
 
-			CbThreshold.Visible = !RbDithering.Checked;
-			TbThreshold.Visible = !RbDithering.Checked && CbThreshold.Checked;
+			CbThreshold.Visible = !RbDithering.Checked && !RbPhotoHD.Checked;
+			TbThreshold.Visible = (!RbDithering.Checked && !RbPhotoHD.Checked) && CbThreshold.Checked;
 
-			LblDitherMode.Visible = CbDither.Visible = RbDithering.Checked;
+			LblDitherMode.Visible = CbDither.Visible = RbDithering.Checked || RbPhotoHD.Checked;
+		}
+
+		private void RbPhotoHD_CheckedChanged(object sender, EventArgs e)
+		{
+			if (IP != null)
+			{
+				if (RbPhotoHD.Checked)
+				{
+					ApplyOptimalPhotoPreset();
+				}
+				RefreshVE();
+			}
+		}
+
+		private async void ApplyOptimalPhotoPreset()
+		{
+			if (IP == null) return;
+
+			Cursor = Cursors.WaitCursor;
+			IP.Suspend();
+			try
+			{
+				if (IP.PristineOriginal != null)
+				{
+					var preset = PhotoEnhanceParams.CreatePortraitPreset();
+					Bitmap pristine = IP.PristineOriginal;
+					Bitmap enhanced = await System.Threading.Tasks.Task.Run(() => PhotoEnhancer.Enhance(pristine, preset));
+					IP.WorkingImage = enhanced;
+				}
+
+				IP.SelectedTool = ImageProcessor.Tool.Dithering;
+				IP.DitheringMode = ImageTransform.DitheringMode.Atkinson;
+				IP.Quality = Math.Min(UDQuality.Maximum, 10.0m);
+				IP.Formula = ImageTransform.Formula.OpticalCorrect;
+				IP.Brightness = 112;
+				IP.Contrast = 115;
+				IP.WhiteClip = 8;
+
+				CbDither.SelectedItem = ImageTransform.DitheringMode.Atkinson;
+				UDQuality.Value = IP.Quality;
+				CbMode.SelectedItem = ImageTransform.Formula.OpticalCorrect;
+				TbBright.Value = 112;
+				TbContrast.Value = 115;
+				TBWhiteClip.Value = 8;
+			}
+			finally
+			{
+				IP.Resume();
+				Cursor = Cursors.Default;
+			}
+		}
+
+		private void BtnPhotoStudio_Click(object sender, EventArgs e)
+		{
+			OpenPhotoStudio();
+		}
+
+		private void BtnCircleMask_Click(object sender, EventArgs e)
+		{
+			if (IP == null) return;
+			Bitmap baseImage = IP.PristineOriginal ?? IP.WorkingImage;
+			if (baseImage == null) return;
+
+			using (CircleMaskForm f = new CircleMaskForm(baseImage, (double)LightBurn.KeychainJigManager.Diameter))
+			{
+				if (f.ShowDialog(this) == DialogResult.OK && f.ResultBitmap != null)
+				{
+					IP.Suspend();
+					try
+					{
+						IP.WorkingImage = (Bitmap)f.ResultBitmap.Clone();
+						LightBurn.KeychainJigManager.Shape = f.SelectedShape;
+						LightBurn.KeychainJigManager.Diameter = (float)f.SelectedDiameter;
+						LightBurn.KeychainJigManager.Width = (float)f.SelectedWidth;
+						LightBurn.KeychainJigManager.Height = (float)f.SelectedHeight;
+						LightBurn.KeychainJigManager.CornerRadius = (float)f.SelectedCornerRadius;
+					}
+					finally
+					{
+						IP.Resume();
+					}
+				}
+			}
+		}
+
+		private void OpenPhotoStudio()
+		{
+			if (IP == null) return;
+
+			Bitmap baseImage = IP.PristineOriginal ?? IP.WorkingImage;
+			using (PhotoStudioForm studio = new PhotoStudioForm(baseImage, IP.Quality))
+			{
+				if (studio.ShowDialog(this) == DialogResult.OK && studio.EnhancedFullResult != null)
+				{
+					IP.Suspend();
+					try
+					{
+						IP.WorkingImage = (Bitmap)studio.EnhancedFullResult.Clone();
+						IP.SelectedTool = ImageProcessor.Tool.Dithering;
+						IP.DitheringMode = studio.CurrentParams.Dithering;
+						IP.Quality = Math.Min(UDQuality.Maximum, studio.SelectedQuality);
+
+						RbPhotoHD.Checked = true;
+						CbDither.SelectedItem = studio.CurrentParams.Dithering;
+						UDQuality.Value = IP.Quality;
+					}
+					finally
+					{
+						IP.Resume();
+					}
+				}
+			}
 		}
 
 		private void TbThreshold_ValueChanged(object sender, EventArgs e)

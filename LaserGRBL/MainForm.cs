@@ -23,6 +23,7 @@ namespace LaserGRBL
 {
     public partial class MainForm : Form
     {
+        public UserControls.GrblPanel3D GrblPanel3D => PreviewForm?.GrblPanel as UserControls.GrblPanel3D;
 
         private GrblCore Core;
 		private UsageStats.MessageData ToolBarMessage;
@@ -39,6 +40,9 @@ namespace LaserGRBL
 		private ToolStripMenuItem mnQuickShapes;
 		private ToolStripMenuItem mnRotary;
 		private ToolStripMenuItem mnCamera;
+		private ToolStripMenuItem mnKeychainJig;
+		private ToolStripMenuItem mnDuplicateArtwork;
+		private ToolStripMenuItem mnBurnKeychain;
 		private ToolStripMenuItem materialDarkToolStripMenuItem;
 		private ToolStripMenuItem materialLightToolStripMenuItem;
 
@@ -104,6 +108,32 @@ namespace LaserGRBL
 			crossCursorToolStripMenuItem.Checked = Core.CrossCursor.Value;
             drawingAreaToolStripMenuItem.Checked = Core.AutoSizeOnDrawing.Value;
             movingAreaToolStripMenuItem.Checked = !Core.AutoSizeOnDrawing.Value;
+
+			ToolStripMenuItem miShowBed = new ToolStripMenuItem("Mostrar Mesa de Trabalho (300×300 mm)", null, (s, e) =>
+			{
+				Core.ShowMachineBed.Value = !Core.ShowMachineBed.Value;
+				(s as ToolStripMenuItem).Checked = Core.ShowMachineBed.Value;
+				(PreviewForm.GrblPanel as UserControls.GrblPanel3D)?.Invalidate();
+			}) { CheckOnClick = true, Checked = Core.ShowMachineBed.Value };
+
+			ToolStripMenuItem miZoomBed = new ToolStripMenuItem("Ajustar Vista à Mesa (300×300 mm)", null, (s, e) =>
+			{
+				Core.ShowMachineBed.Value = true;
+				miShowBed.Checked = true;
+				(PreviewForm.GrblPanel as UserControls.GrblPanel3D)?.ZoomToBed();
+			});
+
+			ToolStripMenuItem miEnforceLimits = new ToolStripMenuItem("Impedir Laser de Ultrapassar Mesa (300×300 mm)", null, (s, e) =>
+			{
+				Core.EnforceBedLimits.Value = !Core.EnforceBedLimits.Value;
+				(s as ToolStripMenuItem).Checked = Core.EnforceBedLimits.Value;
+				(PreviewForm.GrblPanel as UserControls.GrblPanel3D)?.Invalidate();
+			}) { CheckOnClick = true, Checked = Core.EnforceBedLimits.Value };
+
+			previewToolStripMenuItem.DropDownItems.Add(new ToolStripSeparator());
+			previewToolStripMenuItem.DropDownItems.Add(miShowBed);
+			previewToolStripMenuItem.DropDownItems.Add(miZoomBed);
+			previewToolStripMenuItem.DropDownItems.Add(miEnforceLimits);
 
             cadStyleToolStripMenuItem.Tag = Scheme.CADStyle;
             cadDarkToolStripMenuItem.Tag = Scheme.CADDark;
@@ -199,8 +229,24 @@ namespace LaserGRBL
 				Camera.CameraManagerForm.CreateAndShowDialog(Core);
 			}) { ShortcutKeys = Keys.Control | Keys.Shift | Keys.C, ShowShortcutKeys = true };
 
+			mnKeychainJig = new ToolStripMenuItem("Gabarito de Peças / Chaveiros (Ninho & Grade)...", null, (s, e) => {
+				LightBurn.KeychainJigForm.CreateAndShowDialog(Core);
+			}) { ShortcutKeys = Keys.Control | Keys.Shift | Keys.K, ShowShortcutKeys = true };
+
+			mnDuplicateArtwork = new ToolStripMenuItem("Duplicar Arte na Grade de Peças...", null, (s, e) => {
+				LightBurn.KeychainJigManager.DuplicateArtworkAcrossGrid(Core, this);
+			}) { ShortcutKeys = Keys.Control | Keys.Shift | Keys.D, ShowShortcutKeys = true };
+
+			mnBurnKeychain = new ToolStripMenuItem("Gravar Gabarito no Papelão (15% @ 5000 mm/min)", null, (s, e) => {
+				LightBurn.KeychainJigManager.ExecuteBurn(Core, this);
+			});
+
 			MnLightBurn.DropDownItems.Add(mnLayers);
 			MnLightBurn.DropDownItems.Add(mnFraming);
+			MnLightBurn.DropDownItems.Add(new ToolStripSeparator());
+			MnLightBurn.DropDownItems.Add(mnKeychainJig);
+			MnLightBurn.DropDownItems.Add(mnDuplicateArtwork);
+			MnLightBurn.DropDownItems.Add(mnBurnKeychain);
 			MnLightBurn.DropDownItems.Add(new ToolStripSeparator());
 			MnLightBurn.DropDownItems.Add(mnMaterialTest);
 			MnLightBurn.DropDownItems.Add(mnQuickShapes);
@@ -320,6 +366,9 @@ namespace LaserGRBL
 					IconsMgr.PrepareMenuItem(MnLightBurn, "mdi-laser-pointer");
 					IconsMgr.PrepareMenuItem(mnLayers, "mdi-layers");
 					IconsMgr.PrepareMenuItem(mnFraming, "mdi-crop-free");
+					IconsMgr.PrepareMenuItem(mnKeychainJig, "mdi-shape-outline");
+					IconsMgr.PrepareMenuItem(mnDuplicateArtwork, "mdi-content-copy");
+					IconsMgr.PrepareMenuItem(mnBurnKeychain, "mdi-fire");
 					IconsMgr.PrepareMenuItem(mnMaterialTest, "mdi-grid");
 					IconsMgr.PrepareMenuItem(mnQuickShapes, "mdi-shape");
 					IconsMgr.PrepareMenuItem(mnRotary, "mdi-cylinder");

@@ -337,6 +337,10 @@ namespace LaserGRBL
         public RetainedSetting<bool> CrossCursor { get; } = new RetainedSetting<bool>("CrossCursor", true);
         public RetainedSetting<float> PreviewLineSize { get; } = new RetainedSetting<float>("PreviewLineSize", 1f);
         public RetainedSetting<bool> AutoSizeOnDrawing { get; } = new RetainedSetting<bool>("AutoSizeOnDrawing", true);
+        public RetainedSetting<bool> ShowMachineBed { get; } = new RetainedSetting<bool>("ShowMachineBed", true);
+        public RetainedSetting<bool> EnforceBedLimits { get; } = new RetainedSetting<bool>("EnforceBedLimits", true);
+        public RetainedSetting<float> MachineBedWidth { get; } = new RetainedSetting<float>("MachineBedWidth", 300f);
+        public RetainedSetting<float> MachineBedHeight { get; } = new RetainedSetting<float>("MachineBedHeight", 300f);
 
 		static GrblCore() //static constructor for static initialization
 		{
@@ -1312,6 +1316,34 @@ namespace LaserGRBL
 			{
 				if (CanSendFile)
 				{
+					if (EnforceBedLimits.Value && LoadedFile != null && LoadedFile.Range.DrawingRange.ValidRange)
+					{
+						decimal minX = LoadedFile.Range.DrawingRange.X.Min;
+						decimal maxX = LoadedFile.Range.DrawingRange.X.Max;
+						decimal minY = LoadedFile.Range.DrawingRange.Y.Min;
+						decimal maxY = LoadedFile.Range.DrawingRange.Y.Max;
+						decimal bedW = (decimal)MachineBedWidth.Value;
+						decimal bedH = (decimal)MachineBedHeight.Value;
+
+						if (minX < 0 || maxX > bedW || minY < 0 || maxY > bedH)
+						{
+							string msg = string.Format(
+								"ATENÇÃO: O trabalho ultrapassa os limites da mesa configurada ({0:0} x {1:0} mm)!\n\n" +
+								"Limites do desenho:\n" +
+								"• Eixo X: {2:0.0} mm até {3:0.0} mm (Mesa: 0 até {0:0} mm)\n" +
+								"• Eixo Y: {4:0.0} mm até {5:0.0} mm (Mesa: 0 até {1:0} mm)\n\n" +
+								"O laser pode bater nos batentes físicos ou sair da área de gravação.\n\n" +
+								"Deseja CONTINUAR mesmo assim?",
+								bedW, bedH, minX, maxX, minY, maxY
+							);
+
+							if (MessageBox.Show(parent ?? FormsHelper.MainForm, msg, "Limite da Mesa Ultrapassado", MessageBoxButtons.YesNo, MessageBoxIcon.Warning) != DialogResult.Yes)
+							{
+								return;
+							}
+						}
+					}
+
 					mDoingSend = true;
 
 					if (mTP.Executed == 0 || mTP.Executed == mTP.Target) //mai iniziato oppure correttamente finito
@@ -1819,10 +1851,12 @@ namespace LaserGRBL
 
 		private PointF LimitToBound(PointF target)
 		{
-			if (Configuration.SoftLimit)
+			if (Configuration.SoftLimit || EnforceBedLimits.Value)
 			{
+				float maxW = MachineBedWidth.Value > 0 ? MachineBedWidth.Value : (float)Configuration.TableWidth;
+				float maxH = MachineBedHeight.Value > 0 ? MachineBedHeight.Value : (float)Configuration.TableHeight;
 				GPoint p = mWCO;
-				PointF rv = new PointF(Math.Min(Math.Max(target.X, -mWCO.X), (float)Configuration.TableWidth - mWCO.X), Math.Min(Math.Max(target.Y, -mWCO.Y), (float)Configuration.TableHeight - mWCO.Y));
+				PointF rv = new PointF(Math.Min(Math.Max(target.X, -mWCO.X), maxW - mWCO.X), Math.Min(Math.Max(target.Y, -mWCO.Y), maxH - mWCO.Y));
 				return rv;
 			}
 
@@ -3063,7 +3097,7 @@ namespace LaserGRBL
 		{ get { return IsConnected && (MachineStatus == MacStatus.Idle || MachineStatus == GrblCore.MacStatus.Alarm) && Configuration.HomingEnabled; } }
 
 		public bool CanDoZeroing
-		{ get { return IsConnected && MachineStatus == MacStatus.Idle && WorkPosition != GPoint.Zero; } }
+		{ get { return IsConnected && (MachineStatus == MacStatus.Idle || MachineStatus == MacStatus.Alarm); } }
 
 		public bool CanUnlock
 		{ get { return IsConnected && (MachineStatus == MacStatus.Idle || MachineStatus == GrblCore.MacStatus.Alarm); } }
@@ -3239,7 +3273,14 @@ namespace LaserGRBL
 		{ if (CanUnlock) EnqueueCommand(new GrblCommand("$X")); }
 
 		internal void SetNewZero()
-		{ if (CanDoZeroing) EnqueueCommand(new GrblCommand("G92 X0 Y0 Z0")); }
+		{
+			if (CanDoZeroing)
+			{
+				if (MachineStatus == MacStatus.Alarm)
+					EnqueueCommand(new GrblCommand("$X"));
+				EnqueueCommand(new GrblCommand("G92 X0 Y0 Z0"));
+			}
+		}
 
 		public int JogSpeed { get; set; }
 		public decimal JogStep { get; set; }
@@ -3268,6 +3309,15 @@ namespace LaserGRBL
 		internal void ExecuteCustomCode(string buttoncode)
 		{
 			buttoncode = buttoncode.Trim();
+			if (buttoncode.Contains("$130=300") && buttoncode.Contains("$131=300"))
+			{
+				MachineBedWidth.Value = 300f;
+				MachineBedHeight.Value = 300f;
+				ShowMachineBed.Value = true;
+				EnforceBedLimits.Value = true;
+				Camera.CameraOverlayManager.BedWidthMm = 300f;
+				Camera.CameraOverlayManager.BedHeightMm = 300f;
+			}
 			string[] arr = buttoncode.Split(new string[] { Environment.NewLine }, StringSplitOptions.None);
 			foreach (string str in arr)
 			{

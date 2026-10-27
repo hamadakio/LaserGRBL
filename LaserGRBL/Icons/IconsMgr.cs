@@ -1,4 +1,4 @@
-﻿using Base.Drawing;
+using Base.Drawing;
 using LaserGRBL.UserControls;
 using System;
 using System.Collections.Generic;
@@ -45,6 +45,7 @@ namespace LaserGRBL.Icons
             { "custom-zdown1"                       , Color.FromArgb( 79, 188, 243) },
             { "custom-zdown10"                      , Color.FromArgb( 79, 188, 243) },
             { "custom-home"                         , Color.FromArgb( 79, 188, 243) },
+            { "custom-zeroing"                      , Color.FromArgb( 79, 188, 243) },
             { "mdi-information-slab-box"            , Color.FromArgb( 79, 188, 243) },
             { "mdi-safety-goggles"                  , Color.FromArgb( 79, 188, 243) },
             { "mdi-play"                            , Color.FromArgb( 17, 169,  38) },
@@ -80,6 +81,7 @@ namespace LaserGRBL.Icons
             { "custom-zdown1"                       , Color.FromArgb( 79, 188, 243) },
             { "custom-zdown10"                      , Color.FromArgb( 79, 188, 243) },
             { "custom-home"                         , Color.FromArgb( 79, 188, 243) },
+            { "custom-zeroing"                      , Color.FromArgb( 79, 188, 243) },
             { "mdi-information-slab-box"            , Color.FromArgb( 79, 188, 243) },
             { "mdi-safety-goggles"                  , Color.FromArgb( 79, 188, 243) },
             { "mdi-play"                            , Color.FromArgb( 71, 200,  86) },

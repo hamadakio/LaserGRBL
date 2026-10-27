@@ -16,8 +16,8 @@ namespace LaserGRBL.Camera
 
         public static bool Enabled { get; set; } = true;
         public static float Opacity { get; set; } = 0.65f;
-        public static float BedWidthMm { get; set; } = 400.0f;
-        public static float BedHeightMm { get; set; } = 400.0f;
+        public static float BedWidthMm { get; set; } = 300.0f;
+        public static float BedHeightMm { get; set; } = 300.0f;
 
         public static float OffsetX_Mm { get; set; } = 0.0f;
         public static float OffsetY_Mm { get; set; } = 0.0f;

@@ -35,6 +35,10 @@ namespace LaserGRBL
 			}
 
 			EnsureFocusButton();
+			EnsureZeroButtons();
+			EnsureFrameButton();
+			EnsureBedButton();
+			EnsureKeychainButton();
 		}
 
 		public static void EnsureFocusButton()
@@ -42,28 +46,190 @@ namespace LaserGRBL
 			if (buttons == null)
 				buttons = new List<CustomButton>();
 
-			bool hasFocus = false;
+			CustomButton focusBtn = null;
 			foreach (CustomButton b in buttons)
 			{
-				if (b != null && (b.Caption == "Focus" || (b.GCode != null && b.GCode.Contains("M3") && b.GCode.Contains("S10"))))
+				if (b != null && (b.Caption == "Focus" || (b.Caption != "Frame" && b.GCode != null && b.GCode.Contains("G1 F1") && (b.GCode.Contains("S10") || b.GCode.Contains("S30")))))
 				{
-					hasFocus = true;
+					focusBtn = b;
 					break;
 				}
 			}
 
-			if (!hasFocus)
+			if (focusBtn == null)
 			{
-				CustomButton focusBtn = new CustomButton()
+				focusBtn = new CustomButton()
 				{
 					Caption = "Focus",
-					ToolTip = "Laser 1% (Foco / Mira)",
-					GCode = "M3 S10",
-					GCode2 = "M5 S0",
+					ToolTip = "Laser 3% (Foco / Mira)",
+					GCode = "$X\r\nG1 F1\r\nM3 S30",
+					GCode2 = "M5 S0\r\nG0",
 					ButtonType = CustomButton.ButtonTypes.TwoStateButton,
-					EnableStyle = CustomButton.EnableStyles.Always
+					EnableStyle = CustomButton.EnableStyles.Connected
 				};
 				buttons.Add(focusBtn);
+				SaveFile();
+			}
+			else
+			{
+				bool needsUpdate = false;
+				if (focusBtn.Caption != "Focus" || focusBtn.GCode != "$X\r\nG1 F1\r\nM3 S30" || focusBtn.GCode2 != "M5 S0\r\nG0" || focusBtn.ToolTip != "Laser 3% (Foco / Mira)")
+				{
+					focusBtn.Caption = "Focus";
+					focusBtn.GCode = "$X\r\nG1 F1\r\nM3 S30";
+					focusBtn.GCode2 = "M5 S0\r\nG0";
+					focusBtn.ToolTip = "Laser 3% (Foco / Mira)";
+					focusBtn.ButtonType = CustomButton.ButtonTypes.TwoStateButton;
+					focusBtn.EnableStyle = CustomButton.EnableStyles.Connected;
+					needsUpdate = true;
+				}
+				if (needsUpdate)
+				{
+					SaveFile();
+				}
+			}
+		}
+
+		public static void EnsureZeroButtons()
+		{
+			if (buttons == null)
+				buttons = new List<CustomButton>();
+
+			bool hasZero = false;
+			bool hasGoZero = false;
+			foreach (CustomButton b in buttons)
+			{
+				if (b != null)
+				{
+					if (b.Caption == "Zero" || (b.GCode != null && b.GCode.Contains("G92") && b.GCode.Contains("X0") && b.GCode.Contains("Y0")))
+						hasZero = true;
+					if (b.Caption == "GoZero" || (b.GCode != null && b.GCode.Contains("G0") && b.GCode.Contains("X0") && b.GCode.Contains("Y0")))
+						hasGoZero = true;
+				}
+			}
+
+			bool changed = false;
+
+			if (!hasZero)
+			{
+				CustomButton zeroBtn = new CustomButton()
+				{
+					Caption = "Zero",
+					ToolTip = "Definir Ponto Zero (0,0) na posição atual [G92 X0 Y0]",
+					GCode = "$X\r\nG92 X0 Y0",
+					ButtonType = CustomButton.ButtonTypes.Button,
+					EnableStyle = CustomButton.EnableStyles.Connected
+				};
+				buttons.Add(zeroBtn);
+				changed = true;
+			}
+
+			if (!hasGoZero)
+			{
+				CustomButton goZeroBtn = new CustomButton()
+				{
+					Caption = "GoZero",
+					ToolTip = "Voltar para o Ponto Zero inicial (0,0) [G0 X0 Y0]",
+					GCode = "$X\r\nG90\r\nG0 X0 Y0",
+					ButtonType = CustomButton.ButtonTypes.Button,
+					EnableStyle = CustomButton.EnableStyles.Connected
+				};
+				buttons.Add(goZeroBtn);
+				changed = true;
+			}
+
+			if (changed)
+			{
+				SaveFile();
+			}
+		}
+
+		public static void EnsureFrameButton()
+		{
+			if (buttons == null)
+				buttons = new List<CustomButton>();
+
+			bool hasFrame = false;
+			foreach (CustomButton b in buttons)
+			{
+				if (b != null && (b.Caption == "Frame" || (b.GCode != null && b.GCode.Contains("[left]") && b.GCode.Contains("[right]"))))
+				{
+					hasFrame = true;
+					break;
+				}
+			}
+
+			if (!hasFrame)
+			{
+				CustomButton frameBtn = new CustomButton()
+				{
+					Caption = "Frame",
+					ToolTip = "Contorno da Área de Gravação (Framing com Mira 3%)",
+					GCode = "$X\r\nG90\r\nG0 X[left] Y[bottom]\r\nG1 F1000\r\nM3 S30\r\nG1 Y[top]\r\nG1 X[right]\r\nG1 Y[bottom]\r\nG1 X[left]\r\nM5 S0\r\nG0 X0 Y0",
+					ButtonType = CustomButton.ButtonTypes.Button,
+					EnableStyle = CustomButton.EnableStyles.IdleProgram
+				};
+				buttons.Add(frameBtn);
+				SaveFile();
+			}
+		}
+
+		public static void EnsureBedButton()
+		{
+			if (buttons == null)
+				buttons = new List<CustomButton>();
+
+			bool hasBed = false;
+			foreach (CustomButton b in buttons)
+			{
+				if (b != null && (b.Caption == "Bed300" || (b.GCode != null && b.GCode.Contains("$130=300") && b.GCode.Contains("$131=300"))))
+				{
+					hasBed = true;
+					break;
+				}
+			}
+
+			if (!hasBed)
+			{
+				CustomButton bedBtn = new CustomButton()
+				{
+					Caption = "Bed300",
+					ToolTip = "Configurar Área da Mesa 300x300mm (Two Trees) e Ativar Limites",
+					GCode = "$130=300\r\n$131=300",
+					ButtonType = CustomButton.ButtonTypes.Button,
+					EnableStyle = CustomButton.EnableStyles.Connected
+				};
+				buttons.Add(bedBtn);
+				SaveFile();
+			}
+		}
+
+		public static void EnsureKeychainButton()
+		{
+			if (buttons == null)
+				buttons = new List<CustomButton>();
+
+			bool hasBtn = false;
+			foreach (CustomButton b in buttons)
+			{
+				if (b != null && (b.Caption == "Chaveiro" || b.Caption == "Ninho" || (b.GCode != null && b.GCode.Contains("Gabarito de Chaveiro"))))
+				{
+					hasBtn = true;
+					break;
+				}
+			}
+
+			if (!hasBtn)
+			{
+				CustomButton jigBtn = new CustomButton()
+				{
+					Caption = "Chaveiro",
+					ToolTip = "Gravar Ninho no Papelão (15% @ 5000 mm/min) para Chaveiro Redondo",
+					GCode = "; === Gabarito de Chaveiro (Ninho no Papelão 15% @ 5000) ===\r\nG90\r\nG21\r\nM5 S0\r\nG0 X30 Y50\r\nM3 S150\r\nG2 X30 Y50 I20 J0 F5000\r\nM5 S0\r\nG0 X0 Y0",
+					ButtonType = CustomButton.ButtonTypes.Button,
+					EnableStyle = CustomButton.EnableStyles.Connected
+				};
+				buttons.Add(jigBtn);
 				SaveFile();
 			}
 		}

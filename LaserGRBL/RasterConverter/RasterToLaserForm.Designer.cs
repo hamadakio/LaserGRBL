@@ -1,4 +1,4 @@
-﻿namespace LaserGRBL.RasterConverter
+namespace LaserGRBL.RasterConverter
 {
 	partial class RasterToLaserForm
 	{
@@ -122,6 +122,9 @@
 			this.RbDithering = new System.Windows.Forms.RadioButton();
 			this.RbVectorize = new System.Windows.Forms.RadioButton();
 			this.RbLineToLineTracing = new System.Windows.Forms.RadioButton();
+			this.RbPhotoHD = new System.Windows.Forms.RadioButton();
+			this.BtnPhotoStudio = new LaserGRBL.UserControls.ImageButton();
+			this.BtnCircleMask = new LaserGRBL.UserControls.ImageButton();
 			this.tableLayoutPanel1 = new System.Windows.Forms.TableLayoutPanel();
 			this.BtnCancel = new LaserGRBL.UserControls.GrblButton();
 			this.BtnCreate = new LaserGRBL.UserControls.GrblButton();
@@ -238,6 +241,8 @@
 			this.FlipControl.Controls.Add(this.BtnRevert, 0, 0);
 			this.FlipControl.Controls.Add(this.BtnCrop, 6, 0);
 			this.FlipControl.Controls.Add(this.BtnReverse, 10, 0);
+			this.FlipControl.Controls.Add(this.BtnPhotoStudio, 11, 0);
+			this.FlipControl.Controls.Add(this.BtnCircleMask, 12, 0);
 			this.FlipControl.Controls.Add(this.BtnAutoTrim, 7, 0);
 			this.FlipControl.GrowStyle = System.Windows.Forms.TableLayoutPanelGrowStyle.AddColumns;
 			this.FlipControl.Name = "FlipControl";
@@ -371,6 +376,30 @@
 			this.TT.SetToolTip(this.BtnAutoTrim, resources.GetString("BtnAutoTrim.ToolTip"));
 			this.BtnAutoTrim.UseAltImage = false;
 			this.BtnAutoTrim.Click += new System.EventHandler(this.BtnAutoTrim_Click);
+			// 
+			// BtnPhotoStudio
+			// 
+			this.BtnPhotoStudio.AltImage = null;
+			this.BtnPhotoStudio.BackColor = System.Drawing.Color.FromArgb(((int)(((byte)(0)))), ((int)(((byte)(0)))), ((int)(((byte)(0)))), ((int)(((byte)(0)))));
+			this.BtnPhotoStudio.Caption = null;
+			this.BtnPhotoStudio.Name = "BtnPhotoStudio";
+			this.BtnPhotoStudio.Size = new System.Drawing.Size(25, 25);
+			this.BtnPhotoStudio.SizingMode = LaserGRBL.UserControls.ImageButton.SizingModes.FixedSize;
+			this.TT.SetToolTip(this.BtnPhotoStudio, "✨ Abrir Estúdio de Foto & Retrato HD (Ajuste fino de gama, nitidez e simulação real)");
+			this.BtnPhotoStudio.UseAltImage = false;
+			this.BtnPhotoStudio.Click += new System.EventHandler(this.BtnPhotoStudio_Click);
+			// 
+			// BtnCircleMask
+			// 
+			this.BtnCircleMask.AltImage = null;
+			this.BtnCircleMask.BackColor = System.Drawing.Color.FromArgb(((int)(((byte)(0)))), ((int)(((byte)(0)))), ((int)(((byte)(0)))), ((int)(((byte)(0)))));
+			this.BtnCircleMask.Caption = null;
+			this.BtnCircleMask.Name = "BtnCircleMask";
+			this.BtnCircleMask.Size = new System.Drawing.Size(25, 25);
+			this.BtnCircleMask.SizingMode = LaserGRBL.UserControls.ImageButton.SizingModes.FixedSize;
+			this.TT.SetToolTip(this.BtnCircleMask, "⭕ Molde para Chaveiro / Peça (Redondo, Quadrado, Retangular)");
+			this.BtnCircleMask.UseAltImage = false;
+			this.BtnCircleMask.Click += new System.EventHandler(this.BtnCircleMask_Click);
 			// 
 			// TlpLeft
 			// 
@@ -1106,6 +1135,7 @@
 			this.tableLayoutPanel4.Controls.Add(this.RbDithering, 0, 1);
 			this.tableLayoutPanel4.Controls.Add(this.RbVectorize, 0, 2);
 			this.tableLayoutPanel4.Controls.Add(this.RbLineToLineTracing, 0, 0);
+			this.tableLayoutPanel4.Controls.Add(this.RbPhotoHD, 0, 5);
 			this.tableLayoutPanel4.Name = "tableLayoutPanel4";
 			// 
 			// RbNoProcessing
@@ -1151,6 +1181,18 @@
 			this.RbLineToLineTracing.UseVisualStyleBackColor = true;
 			this.RbLineToLineTracing.CheckedChanged += new System.EventHandler(this.RbLineToLineTracing_CheckedChanged);
 			this.RbLineToLineTracing.Click += new System.EventHandler(this.RbLineToLineTracing_Click);
+			// 
+			// RbPhotoHD
+			// 
+			this.RbPhotoHD.AutoSize = true;
+			this.RbPhotoHD.Font = new System.Drawing.Font("Segoe UI", 9F, System.Drawing.FontStyle.Bold);
+			this.RbPhotoHD.Name = "RbPhotoHD";
+			this.RbPhotoHD.Size = new System.Drawing.Size(145, 19);
+			this.RbPhotoHD.TabIndex = 5;
+			this.RbPhotoHD.Text = "✨ Foto HD & Retrato";
+			this.TT.SetToolTip(this.RbPhotoHD, "Modo inteligente de alta definição: aplica curva gama e realce de nitidez ideal para retratos e fotos em laser");
+			this.RbPhotoHD.UseVisualStyleBackColor = true;
+			this.RbPhotoHD.CheckedChanged += new System.EventHandler(this.RbPhotoHD_CheckedChanged);
 			// 
 			// tableLayoutPanel1
 			// 
@@ -1332,5 +1374,8 @@
 		private LaserGRBL.UserControls.TextInput TbPassthroughInfo;
         private UserControls.ImageButton BtnFill;
         private UserControls.ImageButton BtnOutliner;
+        private System.Windows.Forms.RadioButton RbPhotoHD;
+        private UserControls.ImageButton BtnPhotoStudio;
+        private UserControls.ImageButton BtnCircleMask;
     }
 }

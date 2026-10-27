@@ -684,7 +684,9 @@ namespace LaserGRBL.UserControls
 				try
 				{
 					e.Graphics.DrawImage(bmp, new Point(0, 0));
+					DrawMachineBedOverlay(e);
 					DrawCameraOverlay(e);
+					DrawKeychainJigOverlay(e);
 					DoGDIDraw(e);
 				}
 				catch (Exception ex) { OnPaintException = ex;  }
@@ -731,6 +733,186 @@ namespace LaserGRBL.UserControls
 		private string FormatCoord(float coord)
 		{
 			return string.Format("{0,10:######0.000}", coord);
+		}
+
+		public void ZoomToBed()
+		{
+			if (Core == null) return;
+			float bedW = Core.MachineBedWidth.Value;
+			float bedH = Core.MachineBedHeight.Value;
+			if (bedW <= 0 || bedH <= 0) return;
+
+			double ratio = Width / (double)Height;
+			double availableWidth = Width - mPadding.Left - mPadding.Right;
+			double availableHeight = Height - mPadding.Bottom - mPadding.Top;
+			const double growFactor = 1.15;
+
+			double drawingWidth = (double)bedW * growFactor;
+			double drawingHeight = (double)bedH * growFactor;
+
+			double widthRatio = drawingWidth / availableWidth;
+			double paddingLeftWorld = mPadding.Left * widthRatio;
+			double paddingRightWorld = mPadding.Right * widthRatio;
+
+			double heightRatio = drawingHeight / availableHeight;
+			double paddingBottomWorld = mPadding.Bottom * heightRatio;
+			double paddingTopWorld = mPadding.Top * heightRatio;
+
+			double left, right, bottom, top;
+
+			if (drawingWidth / drawingHeight > availableWidth / availableHeight)
+			{
+				left = bedW / 2.0 - drawingWidth / 2.0 - paddingLeftWorld;
+				right = bedW / 2.0 + drawingWidth / 2.0 + paddingRightWorld;
+				double resizedHeight = (right - left) / ratio;
+				bottom = bedH / 2.0 - resizedHeight / 2.0;
+				top = bedH / 2.0 + resizedHeight / 2.0;
+			}
+			else
+			{
+				bottom = bedH / 2.0 - drawingHeight / 2.0 - paddingBottomWorld;
+				top = bedH / 2.0 + drawingHeight / 2.0 + paddingTopWorld;
+				double resizedWidth = (top - bottom) * ratio;
+				left = bedW / 2.0 - resizedWidth / 2.0;
+				right = bedW / 2.0 + resizedWidth / 2.0;
+			}
+
+			mCamera.Left = (float)left;
+			mCamera.Right = (float)right;
+			mCamera.Bottom = (float)bottom;
+			mCamera.Top = (float)top;
+
+			RR.Set();
+			Invalidate();
+		}
+
+		private void DrawMachineBedOverlay(PaintEventArgs e)
+		{
+			if (Core == null || !Core.ShowMachineBed.Value) return;
+
+			float bedW = Core.MachineBedWidth.Value;
+			float bedH = Core.MachineBedHeight.Value;
+			if (bedW <= 0 || bedH <= 0) return;
+
+			try
+			{
+				float bx0 = (float)((0 - mCamera.Left) / (mCamera.Right - mCamera.Left) * Width);
+				float by0 = (float)(Height - (0 - mCamera.Bottom) / (mCamera.Top - mCamera.Bottom) * Height);
+				float bx1 = (float)((bedW - mCamera.Left) / (mCamera.Right - mCamera.Left) * Width);
+				float by1 = (float)(Height - (bedH - mCamera.Bottom) / (mCamera.Top - mCamera.Bottom) * Height);
+
+				Rectangle destRect = Rectangle.FromLTRB(
+					(int)Math.Min(bx0, bx1),
+					(int)Math.Min(by0, by1),
+					(int)Math.Max(bx0, bx1),
+					(int)Math.Max(by0, by1)
+				);
+
+				if (!destRect.IntersectsWith(ClientRectangle) || destRect.Width <= 2 || destRect.Height <= 2)
+					return;
+
+				bool isOutOfBounds = false;
+				if (Core.LoadedFile != null && Core.LoadedFile.Range.DrawingRange.ValidRange)
+				{
+					var dr = Core.LoadedFile.Range.DrawingRange;
+					if (dr.X.Min < 0 || dr.X.Max > (decimal)bedW || dr.Y.Min < 0 || dr.Y.Max > (decimal)bedH)
+					{
+						isOutOfBounds = true;
+					}
+				}
+
+				e.Graphics.SmoothingMode = SmoothingMode.AntiAlias;
+
+				// 1. Bed Background Translucent Tint
+				using (SolidBrush fillBrush = new SolidBrush(Color.FromArgb(16, 255, 255, 255)))
+				{
+					e.Graphics.FillRectangle(fillBrush, destRect);
+				}
+
+				// 2. Internal Grid lines every 50mm and 100mm
+				float stepMm = 50f;
+				if (destRect.Width > 100 && destRect.Height > 100)
+				{
+					using (Pen minorGridPen = new Pen(Color.FromArgb(28, 120, 160, 200), 1f) { DashStyle = DashStyle.Dot })
+					using (Pen majorGridPen = new Pen(Color.FromArgb(55, 120, 160, 200), 1f) { DashStyle = DashStyle.Dash })
+					{
+						for (float gx = stepMm; gx < bedW; gx += stepMm)
+						{
+							float sx = (float)((gx - mCamera.Left) / (mCamera.Right - mCamera.Left) * Width);
+							if (sx >= destRect.Left && sx <= destRect.Right)
+							{
+								Pen gp = ((int)Math.Round(gx) % 100 == 0) ? majorGridPen : minorGridPen;
+								e.Graphics.DrawLine(gp, sx, destRect.Top, sx, destRect.Bottom);
+							}
+						}
+						for (float gy = stepMm; gy < bedH; gy += stepMm)
+						{
+							float sy = (float)(Height - (gy - mCamera.Bottom) / (mCamera.Top - mCamera.Bottom) * Height);
+							if (sy >= destRect.Top && sy <= destRect.Bottom)
+							{
+								Pen gp = ((int)Math.Round(gy) % 100 == 0) ? majorGridPen : minorGridPen;
+								e.Graphics.DrawLine(gp, destRect.Left, sy, destRect.Right, sy);
+							}
+						}
+					}
+				}
+
+				// 3. Bed Outer Boundary Border
+				if (isOutOfBounds)
+				{
+					using (Pen warnPen = new Pen(Color.FromArgb(255, 50, 50), 2.5f) { DashStyle = DashStyle.Dash })
+					{
+						e.Graphics.DrawRectangle(warnPen, destRect);
+					}
+				}
+				else
+				{
+					using (Pen shadowPen = new Pen(Color.FromArgb(120, 0, 0, 0), 3.5f))
+					using (Pen borderPen = new Pen(Color.FromArgb(220, 240, 245, 255), 2.2f))
+					{
+						e.Graphics.DrawRectangle(shadowPen, Rectangle.Inflate(destRect, 1, 1));
+						e.Graphics.DrawRectangle(borderPen, destRect);
+					}
+				}
+
+				// 4. Origin (0,0) Red Crosshair "+" exactly matching user diagram
+				using (Pen redPen = new Pen(Color.FromArgb(255, 230, 25, 25), 3.2f))
+				{
+					redPen.StartCap = LineCap.Square;
+					redPen.EndCap = LineCap.Square;
+					float arm = 14f;
+					e.Graphics.DrawLine(redPen, bx0 - arm, by0, bx0 + arm, by0);
+					e.Graphics.DrawLine(redPen, bx0, by0 - arm, bx0, by0 + arm);
+				}
+
+				using (Font originFont = new Font("Segoe UI", 8f, FontStyle.Bold))
+				using (SolidBrush originBrush = new SolidBrush(Color.FromArgb(255, 220, 60, 60)))
+				{
+					e.Graphics.DrawString("(0,0)", originFont, originBrush, bx0 + 6, by0 - 18);
+				}
+
+				// 5. Dimension & Status Badge
+				string badgeText = isOutOfBounds
+					? $"⚠️ FORA DOS LIMITES: {bedW:0} × {bedH:0} mm (Two Trees)"
+					: $"Mesa: {bedW:0} × {bedH:0} mm (Two Trees)";
+				using (Font badgeFont = new Font("Segoe UI", 8.5f, FontStyle.Bold))
+				{
+					Size textSize = TextRenderer.MeasureText(badgeText, badgeFont);
+					int badgeX = Math.Max(destRect.Left + 6, Math.Min(destRect.Right - textSize.Width - 10, destRect.Left + 10));
+					int badgeY = Math.Max(10, destRect.Top + 6);
+
+					Rectangle badgeRect = new Rectangle(badgeX - 4, badgeY - 2, textSize.Width + 8, textSize.Height + 4);
+					using (SolidBrush badgeBg = new SolidBrush(isOutOfBounds ? Color.FromArgb(220, 180, 20, 20) : Color.FromArgb(200, 20, 30, 45)))
+					using (Pen badgeBorder = new Pen(isOutOfBounds ? Color.Red : Color.FromArgb(80, 130, 180), 1f))
+					using (SolidBrush textBrush = new SolidBrush(Color.White))
+					{
+						e.Graphics.FillRectangle(badgeBg, badgeRect);
+						e.Graphics.DrawRectangle(badgeBorder, badgeRect);
+						e.Graphics.DrawString(badgeText, badgeFont, textBrush, badgeX, badgeY);
+					}
+				}
+			}
+			catch { }
 		}
 
 		private void DrawCameraOverlay(PaintEventArgs e)
@@ -781,6 +963,190 @@ namespace LaserGRBL.UserControls
 				}
 				catch { }
 			}
+		}
+
+		private static GraphicsPath CreateRoundedRectanglePath(RectangleF rect, float radius)
+		{
+			GraphicsPath path = new GraphicsPath();
+			if (radius <= 0.1f)
+			{
+				path.AddRectangle(rect);
+				return path;
+			}
+			float d = radius * 2.0f;
+			if (d > rect.Width) d = rect.Width;
+			if (d > rect.Height) d = rect.Height;
+
+			path.AddArc(rect.X, rect.Y, d, d, 180, 90);
+			path.AddArc(rect.Right - d, rect.Y, d, d, 270, 90);
+			path.AddArc(rect.Right - d, rect.Bottom - d, d, d, 0, 90);
+			path.AddArc(rect.X, rect.Bottom - d, d, d, 90, 90);
+			path.CloseFigure();
+			return path;
+		}
+
+		private void DrawKeychainJigOverlay(PaintEventArgs e)
+		{
+			if (Core == null || !LightBurn.KeychainJigManager.Enabled) return;
+
+			var shape = LightBurn.KeychainJigManager.Shape;
+			float wMm = LightBurn.KeychainJigManager.EffectiveWidth;
+			float hMm = LightBurn.KeychainJigManager.EffectiveHeight;
+			float crMm = shape == LightBurn.JigShape.Circle ? 0 : Math.Min(LightBurn.KeychainJigManager.CornerRadius, Math.Min(wMm, hMm) / 2.0f);
+			var centers = LightBurn.KeychainJigManager.GetItemCenters();
+			if (centers == null || centers.Count == 0) return;
+
+			try
+			{
+				e.Graphics.SmoothingMode = SmoothingMode.AntiAlias;
+
+				float camW = (float)(mCamera.Right - mCamera.Left);
+				float camH = (float)(mCamera.Top - mCamera.Bottom);
+				if (camW <= 0 || camH <= 0) return;
+
+				float swx = (float)(wMm / camW * Width);
+				float shy = (float)(hMm / camH * Height);
+				float scr = (float)(crMm / camW * Width);
+
+				if (swx <= 2 || shy <= 2) return;
+
+				// Global bounds check for artwork vs jig
+				bool artOutOfBounds = false;
+				if (Core.LoadedFile != null && Core.LoadedFile.Range.DrawingRange.ValidRange)
+				{
+					var dr = Core.LoadedFile.Range.DrawingRange;
+					float artMinX = (float)dr.X.Min;
+					float artMaxX = (float)dr.X.Max;
+					float artMinY = (float)dr.Y.Min;
+					float artMaxY = (float)dr.Y.Max;
+
+					// If 1 item, check against item 1 bounds
+					if (centers.Count == 1)
+					{
+						float cx = centers[0].X;
+						float cy = centers[0].Y;
+						if (shape == LightBurn.JigShape.Circle)
+						{
+							float r = wMm / 2.0f;
+							float d1 = (float)Math.Sqrt(Math.Pow(artMinX - cx, 2) + Math.Pow(artMinY - cy, 2));
+							float d2 = (float)Math.Sqrt(Math.Pow(artMaxX - cx, 2) + Math.Pow(artMinY - cy, 2));
+							float d3 = (float)Math.Sqrt(Math.Pow(artMaxX - cx, 2) + Math.Pow(artMaxY - cy, 2));
+							float d4 = (float)Math.Sqrt(Math.Pow(artMinX - cx, 2) + Math.Pow(artMaxY - cy, 2));
+							if (Math.Max(Math.Max(d1, d2), Math.Max(d3, d4)) > r) artOutOfBounds = true;
+						}
+						else
+						{
+							if (artMinX < cx - wMm / 2f || artMaxX > cx + wMm / 2f || artMinY < cy - hMm / 2f || artMaxY > cy + hMm / 2f)
+								artOutOfBounds = true;
+						}
+					}
+				}
+
+				Color jigColor = artOutOfBounds ? Color.FromArgb(255, 80, 80) : Color.FromArgb(255, 200, 40);
+
+				using (SolidBrush fillBrush = new SolidBrush(Color.FromArgb(28, 255, 180, 0)))
+				using (Pen shadowPen = new Pen(Color.FromArgb(140, 0, 0, 0), 3.5f))
+				using (Pen borderPen = new Pen(jigColor, 2.2f) { DashStyle = DashStyle.Dash })
+				using (Pen crossPen = new Pen(Color.FromArgb(230, 255, 210, 60), 1.8f))
+				using (SolidBrush holeBrush = new SolidBrush(Color.FromArgb(180, 40, 40, 40)))
+				using (Pen holePen = new Pen(Color.FromArgb(255, 220, 100), 1.5f))
+				{
+					for (int i = 0; i < centers.Count; i++)
+					{
+						float cx = centers[i].X;
+						float cy = centers[i].Y;
+
+						float scx = (float)((cx - mCamera.Left) / camW * Width);
+						float scy = (float)(Height - (cy - mCamera.Bottom) / camH * Height);
+
+						RectangleF itemRect = new RectangleF(scx - swx / 2.0f, scy - shy / 2.0f, swx, shy);
+
+						if (shape == LightBurn.JigShape.Circle)
+						{
+							e.Graphics.FillEllipse(fillBrush, itemRect);
+							e.Graphics.DrawEllipse(shadowPen, RectangleF.Inflate(itemRect, 1, 1));
+							e.Graphics.DrawEllipse(borderPen, itemRect);
+						}
+						else
+						{
+							using (GraphicsPath path = CreateRoundedRectanglePath(itemRect, scr))
+							{
+								e.Graphics.FillPath(fillBrush, path);
+								e.Graphics.DrawPath(shadowPen, path);
+								e.Graphics.DrawPath(borderPen, path);
+							}
+						}
+
+						// Center crosshair
+						if (LightBurn.KeychainJigManager.ShowCrosshair)
+						{
+							float arm = Math.Min(12f, Math.Min(swx, shy) * 0.35f);
+							e.Graphics.DrawLine(crossPen, scx - arm, scy, scx + arm, scy);
+							e.Graphics.DrawLine(crossPen, scx, scy - arm, scx, scy + arm);
+						}
+
+						// Optional Ring Hole
+						if (LightBurn.KeychainJigManager.HoleDiameter > 0.5f)
+						{
+							float hrMm = LightBurn.KeychainJigManager.HoleDiameter / 2.0f;
+							float shrx = (float)(hrMm / camW * Width);
+							float shry = (float)(hrMm / camH * Height);
+							float holeCyMm = cy + (hMm / 2.0f) - LightBurn.KeychainJigManager.HoleMargin - hrMm;
+							float shcy = (float)(Height - (holeCyMm - mCamera.Bottom) / camH * Height);
+
+							RectangleF holeRect = new RectangleF(scx - shrx, shcy - shry, shrx * 2, shry * 2);
+							e.Graphics.FillEllipse(holeBrush, holeRect);
+							e.Graphics.DrawEllipse(holePen, holeRect);
+						}
+
+						// Piece index number badge if grid
+						if (centers.Count > 1 && swx > 25 && shy > 25)
+						{
+							using (Font idxFont = new Font("Segoe UI", 7.5f, FontStyle.Bold))
+							using (SolidBrush idxBrush = new SolidBrush(Color.FromArgb(160, 255, 255, 255)))
+							{
+								string idxText = $"#{i + 1}";
+								e.Graphics.DrawString(idxText, idxFont, idxBrush, itemRect.Left + 3, itemRect.Top + 2);
+							}
+						}
+					}
+				}
+
+				// Summary Badge text
+				string shapeIcon = shape == LightBurn.JigShape.Circle ? "⭕" : (shape == LightBurn.JigShape.Square ? "⬛" : "▭");
+				string badgeText;
+				if (centers.Count > 1)
+				{
+					badgeText = $"{shapeIcon} Grade: {centers.Count} peças ({LightBurn.KeychainJigManager.GridCols}×{LightBurn.KeychainJigManager.GridRows}) | {wMm:0.0}×{hMm:0.0} mm";
+				}
+				else
+				{
+					badgeText = artOutOfBounds
+						? $"⚠️ Chaveiro {wMm:0.0}×{hMm:0.0}mm (ARTE ULTRAPASSA O GABARITO)"
+						: $"{shapeIcon} Gabarito {wMm:0.0}×{hMm:0.0}mm (X:{centers[0].X:0.0}, Y:{centers[0].Y:0.0})";
+				}
+
+				using (Font badgeFont = new Font("Segoe UI", 8.5f, FontStyle.Bold))
+				{
+					float firstScx = (float)((centers[0].X - mCamera.Left) / camW * Width);
+					float firstScy = (float)(Height - (centers[0].Y - mCamera.Bottom) / camH * Height);
+
+					Size textSize = TextRenderer.MeasureText(badgeText, badgeFont);
+					int badgeX = (int)firstScx - textSize.Width / 2;
+					int badgeY = (int)(firstScy + (shy / 2.0f) + 6);
+
+					Rectangle badgeRect = new Rectangle(badgeX - 4, badgeY - 2, textSize.Width + 8, textSize.Height + 4);
+					using (SolidBrush badgeBg = new SolidBrush(artOutOfBounds ? Color.FromArgb(220, 180, 20, 20) : Color.FromArgb(200, 30, 40, 50)))
+					using (Pen badgeBorder = new Pen(artOutOfBounds ? Color.Red : Color.FromArgb(255, 200, 40), 1f))
+					using (SolidBrush textBrush = new SolidBrush(Color.White))
+					{
+						e.Graphics.FillRectangle(badgeBg, badgeRect);
+						e.Graphics.DrawRectangle(badgeBorder, badgeRect);
+						e.Graphics.DrawString(badgeText, badgeFont, textBrush, badgeX, badgeY);
+					}
+				}
+			}
+			catch { }
 		}
 
 		private void DoGDIDraw(PaintEventArgs e)
@@ -1177,7 +1543,7 @@ namespace LaserGRBL.UserControls
 			});
 			cms.Items.Add(miJog);
 
-			ToolStripMenuItem miLaserToggle = new ToolStripMenuItem(mIsLaserGuideOn ? $"💡 Desligar Laser (Foco)" : $"💡 Ligar Laser 1% (Foco / Mira)", null, (s, ev) =>
+			ToolStripMenuItem miLaserToggle = new ToolStripMenuItem(mIsLaserGuideOn ? $"💡 Desligar Laser (Foco)" : $"💡 Ligar Laser 3% (Foco / Mira)", null, (s, ev) =>
 			{
 				ToggleLaser1Percent();
 			});
@@ -1214,7 +1580,158 @@ namespace LaserGRBL.UserControls
 			});
 			cms.Items.Add(miFraming);
 
+			cms.Items.Add(new ToolStripSeparator());
+
+			string jigTitle = LightBurn.KeychainJigManager.TotalItems > 1
+				? $"📋 Gabarito de Peças ({LightBurn.KeychainJigManager.TotalItems} peças na grade)..."
+				: $"⭕ Gabarito de Chaveiro / Peça ({LightBurn.KeychainJigManager.EffectiveWidth:0}×{LightBurn.KeychainJigManager.EffectiveHeight:0} mm)...";
+
+			ToolStripMenuItem miKeychain = new ToolStripMenuItem(jigTitle, null, (s, ev) =>
+			{
+				LightBurn.KeychainJigForm.CreateAndShowDialog(Core);
+			});
+			cms.Items.Add(miKeychain);
+
+			ToolStripMenuItem miDuplicateOnGrid = new ToolStripMenuItem($"🎯 Duplicar Arte na Grade ({LightBurn.KeychainJigManager.TotalItems} peças)", null, (s, ev) =>
+			{
+				LightBurn.KeychainJigManager.DuplicateArtworkAcrossGrid(Core, this);
+				Invalidate();
+				UpdatePositionBarCoords();
+			});
+			cms.Items.Add(miDuplicateOnGrid);
+
+			ToolStripMenuItem miCenterOnJig = new ToolStripMenuItem($"🎯 Centralizar Arte na 1ª Peça", null, (s, ev) =>
+			{
+				LightBurn.KeychainJigManager.CenterArtwork(Core);
+				Invalidate();
+				UpdatePositionBarCoords();
+			});
+			cms.Items.Add(miCenterOnJig);
+
+			ToolStripMenuItem miBurnJig = new ToolStripMenuItem($"🔥 Gravar Gabarito no Papelão ({LightBurn.KeychainJigManager.TotalItems} peças @ 15% 5000 mm/min)", null, (s, ev) =>
+			{
+				LightBurn.KeychainJigManager.ExecuteBurn(Core, this);
+			});
+			cms.Items.Add(miBurnJig);
+
+			ToolStripMenuItem miMoveJigHere = new ToolStripMenuItem($"📍 Mover Gabarito para Cá", null, (s, ev) =>
+			{
+				LightBurn.KeychainJigManager.CenterX = (float)worldPos.X;
+				LightBurn.KeychainJigManager.CenterY = (float)worldPos.Y;
+				LightBurn.KeychainJigManager.Enabled = true;
+				Invalidate();
+			});
+			cms.Items.Add(miMoveJigHere);
+
+			ToolStripMenuItem miToggleJig = new ToolStripMenuItem(LightBurn.KeychainJigManager.Enabled ? "🗑️ Ocultar / Remover Gabarito da Mesa" : "⭕ Mostrar Gabarito na Mesa", null, (s, ev) =>
+			{
+				LightBurn.KeychainJigManager.Enabled = !LightBurn.KeychainJigManager.Enabled;
+				Invalidate();
+			});
+			cms.Items.Add(miToggleJig);
+
+			cms.Items.Add(new ToolStripSeparator());
+
+			ToolStripMenuItem miToggleBed = new ToolStripMenuItem(Core?.ShowMachineBed.Value == true ? $"📐 Ocultar Mesa de Trabalho" : $"📐 Mostrar Mesa de Trabalho (300×300 mm)", null, (s, ev) =>
+			{
+				if (Core != null)
+				{
+					Core.ShowMachineBed.Value = !Core.ShowMachineBed.Value;
+					Invalidate();
+				}
+			});
+			cms.Items.Add(miToggleBed);
+
+			ToolStripMenuItem miZoomBed = new ToolStripMenuItem($"🔍 Ajustar Vista à Mesa (300×300 mm)", null, (s, ev) =>
+			{
+				if (Core != null) Core.ShowMachineBed.Value = true;
+				ZoomToBed();
+			});
+			cms.Items.Add(miZoomBed);
+
+			ToolStripMenuItem miEnforceLimits = new ToolStripMenuItem(Core?.EnforceBedLimits.Value == true ? $"🛡 Limites Ativos (Não Ultrapassar 300×300)" : $"🛡 Ativar Limites da Mesa (300×300)", null, (s, ev) =>
+			{
+				if (Core != null)
+				{
+					Core.EnforceBedLimits.Value = !Core.EnforceBedLimits.Value;
+					Invalidate();
+				}
+			})
+			{
+				Checked = Core?.EnforceBedLimits.Value == true
+			};
+			cms.Items.Add(miEnforceLimits);
+
+			ToolStripMenuItem miQuickFrame = new ToolStripMenuItem($"🖼 Contorno Rápido da Área (Mira 3%)", null, (s, ev) =>
+			{
+				if (Core == null || !Core.IsConnected)
+				{
+					MessageBox.Show("A máquina não está conectada ao LaserGRBL.", "Contorno", MessageBoxButtons.OK, MessageBoxIcon.Warning);
+					return;
+				}
+				if (Core.LoadedFile == null || !Core.LoadedFile.Range.DrawingRange.ValidRange)
+				{
+					MessageBox.Show("Nenhum desenho carregado para contornar.", "Contorno", MessageBoxButtons.OK, MessageBoxIcon.Warning);
+					return;
+				}
+				Core.ExecuteCustomCode("$X\r\nG90\r\nG0 X[left] Y[bottom]\r\nG1 F1000\r\nM3 S30\r\nG1 Y[top]\r\nG1 X[right]\r\nG1 Y[bottom]\r\nG1 X[left]\r\nM5 S0\r\nG0 X0 Y0");
+			});
+			cms.Items.Add(miQuickFrame);
+
+			ToolStripMenuItem miConfigBed = new ToolStripMenuItem($"⚙ Configurar Dimensões da Mesa...", null, (s, ev) =>
+			{
+				ShowConfigureBedDialog();
+			});
+			cms.Items.Add(miConfigBed);
+
 			cms.Show(this, screenPos);
+		}
+
+		private void ShowConfigureBedDialog()
+		{
+			if (Core == null) return;
+			using (Form f = new Form())
+			{
+				f.Text = "Configurar Área de Trabalho da Mesa";
+				f.Size = new Size(350, 240);
+				f.StartPosition = FormStartPosition.CenterParent;
+				f.FormBorderStyle = FormBorderStyle.FixedDialog;
+				f.MaximizeBox = false;
+				f.MinimizeBox = false;
+				f.ShowIcon = false;
+
+				Label lblW = new Label { Text = "Largura da Mesa (X em mm):", Location = new Point(20, 20), AutoSize = true };
+				NumericUpDown numW = new NumericUpDown { Location = new Point(210, 18), Size = new Size(100, 22), Minimum = 50, Maximum = 3000, Value = (decimal)Core.MachineBedWidth.Value };
+
+				Label lblH = new Label { Text = "Altura da Mesa (Y em mm):", Location = new Point(20, 55), AutoSize = true };
+				NumericUpDown numH = new NumericUpDown { Location = new Point(210, 53), Size = new Size(100, 22), Minimum = 50, Maximum = 3000, Value = (decimal)Core.MachineBedHeight.Value };
+
+				CheckBox chkEnforce = new CheckBox { Text = "Impedir que o laser ultrapasse os limites", Location = new Point(20, 90), AutoSize = true, Checked = Core.EnforceBedLimits.Value };
+				CheckBox chkShow = new CheckBox { Text = "Visualizar mesa na área de trabalho", Location = new Point(20, 115), AutoSize = true, Checked = Core.ShowMachineBed.Value };
+
+				Button btnOk = new Button { Text = "OK", DialogResult = DialogResult.OK, Location = new Point(140, 155), Size = new Size(80, 28) };
+				Button btnCancel = new Button { Text = "Cancelar", DialogResult = DialogResult.Cancel, Location = new Point(230, 155), Size = new Size(80, 28) };
+
+				f.Controls.AddRange(new Control[] { lblW, numW, lblH, numH, chkEnforce, chkShow, btnOk, btnCancel });
+				f.AcceptButton = btnOk;
+				f.CancelButton = btnCancel;
+
+				if (f.ShowDialog(this) == DialogResult.OK)
+				{
+					Core.MachineBedWidth.Value = (float)numW.Value;
+					Core.MachineBedHeight.Value = (float)numH.Value;
+					Core.EnforceBedLimits.Value = chkEnforce.Checked;
+					Core.ShowMachineBed.Value = chkShow.Checked;
+					Camera.CameraOverlayManager.BedWidthMm = (float)numW.Value;
+					Camera.CameraOverlayManager.BedHeightMm = (float)numH.Value;
+					if (Core.IsConnected)
+					{
+						Core.ExecuteCustomCode($"$130={numW.Value}\r\n$131={numH.Value}");
+					}
+					ZoomToBed();
+					Invalidate();
+				}
+			}
 		}
 
 		private void ToggleLaser1Percent()
@@ -1223,17 +1740,17 @@ namespace LaserGRBL.UserControls
 			if (mIsLaserGuideOn)
 			{
 				int maxPwm = (int)(GrblCore.Configuration != null ? GrblCore.Configuration.MaxPWM : 1000);
-				int pwr = Math.Max(1, (int)Math.Round(maxPwm * 0.01));
-				Core?.ExecuteCustomCode($"M3 S{pwr}");
+				int pwr = Math.Max(1, (int)Math.Round(maxPwm * 0.03));
+				Core?.ExecuteCustomCode($"$X\r\nG1 F1\r\nM3 S{pwr}");
 			}
 			else
 			{
-				Core?.ExecuteCustomCode("M5 S0");
+				Core?.ExecuteCustomCode("M5 S0\r\nG0");
 			}
 			if (btnLaser1Pct != null)
 			{
 				btnLaser1Pct.BackColor = mIsLaserGuideOn ? ColorScheme.PressedButtons : Color.FromArgb(40, 50, 65);
-				btnLaser1Pct.Text = mIsLaserGuideOn ? "💡 Laser ON" : "💡 Laser 1%";
+				btnLaser1Pct.Text = mIsLaserGuideOn ? "💡 Laser ON" : "💡 Laser 3%";
 			}
 		}
 
@@ -1264,8 +1781,8 @@ namespace LaserGRBL.UserControls
 
 			pnlPositionBar = new Panel
 			{
-				Size = new Size(330, 195),
-				Location = new Point(Math.Max(10, Width - 345), Math.Max(10, Height - 240)),
+				Size = new Size(330, 250),
+				Location = new Point(Math.Max(10, Width - 345), Math.Max(10, Height - 295)),
 				Anchor = AnchorStyles.Bottom | AnchorStyles.Right,
 				BackColor = Color.FromArgb(235, 20, 25, 35),
 				BorderStyle = BorderStyle.FixedSingle,
@@ -1434,7 +1951,7 @@ namespace LaserGRBL.UserControls
 
 			btnLaser1Pct = new Button
 			{
-				Text = "💡 Laser 1%",
+				Text = "💡 Laser 3%",
 				Size = new Size(82, 24),
 				Margin = new Padding(1),
 				FlatStyle = FlatStyle.Flat,
@@ -1513,11 +2030,152 @@ namespace LaserGRBL.UserControls
 			pnlRotateRow.Controls.Add(btnRotPhoto);
 			pnlRotateRow.Controls.Add(btnRotJob);
 
+			// Bed & Frame row
+			FlowLayoutPanel pnlBedFrameRow = new FlowLayoutPanel
+			{
+				Location = new Point(6, 150),
+				Size = new Size(318, 28),
+				WrapContents = false
+			};
+
+			Button btnBedView = new Button
+			{
+				Text = "📐 Mesa 300",
+				Size = new Size(152, 24),
+				Margin = new Padding(1),
+				FlatStyle = FlatStyle.Flat,
+				BackColor = Color.FromArgb(30, 58, 85),
+				ForeColor = Color.Cyan,
+				Font = new Font("Segoe UI", 7.5f, FontStyle.Bold),
+				Cursor = Cursors.Hand
+			};
+			btnBedView.Click += (s, e) =>
+			{
+				if (Core != null)
+				{
+					Core.ShowMachineBed.Value = true;
+					Core.MachineBedWidth.Value = 300f;
+					Core.MachineBedHeight.Value = 300f;
+					Core.EnforceBedLimits.Value = true;
+				}
+				ZoomToBed();
+			};
+
+			Button btnFrameContour = new Button
+			{
+				Text = "🖼 Contorno (3%)",
+				Size = new Size(156, 24),
+				Margin = new Padding(1),
+				FlatStyle = FlatStyle.Flat,
+				BackColor = Color.FromArgb(30, 58, 85),
+				ForeColor = Color.Yellow,
+				Font = new Font("Segoe UI", 7.5f, FontStyle.Bold),
+				Cursor = Cursors.Hand
+			};
+			btnFrameContour.Click += (s, e) =>
+			{
+				if (Core == null || !Core.IsConnected)
+				{
+					MessageBox.Show("A máquina não está conectada ao LaserGRBL.", "Contorno", MessageBoxButtons.OK, MessageBoxIcon.Warning);
+					return;
+				}
+				if (Core.LoadedFile == null || !Core.LoadedFile.Range.DrawingRange.ValidRange)
+				{
+					MessageBox.Show("Nenhum arquivo ou desenho carregado para contornar.", "Contorno", MessageBoxButtons.OK, MessageBoxIcon.Warning);
+					return;
+				}
+				Core.ExecuteCustomCode("$X\r\nG90\r\nG0 X[left] Y[bottom]\r\nG1 F1000\r\nM3 S30\r\nG1 Y[top]\r\nG1 X[right]\r\nG1 Y[bottom]\r\nG1 X[left]\r\nM5 S0\r\nG0 X0 Y0");
+			};
+
+			pnlBedFrameRow.Controls.Add(btnBedView);
+			pnlBedFrameRow.Controls.Add(btnFrameContour);
+
+			// Keychain Jig row
+			FlowLayoutPanel pnlKeychainRow = new FlowLayoutPanel
+			{
+				Location = new Point(6, 178),
+				Size = new Size(318, 28),
+				WrapContents = false
+			};
+
+			Button btnKeychainForm = new Button
+			{
+				Text = "⭕ Gabarito...",
+				Size = new Size(76, 24),
+				Margin = new Padding(1),
+				FlatStyle = FlatStyle.Flat,
+				BackColor = Color.FromArgb(40, 65, 95),
+				ForeColor = Color.FromArgb(255, 200, 40),
+				Font = new Font("Segoe UI", 7.5f, FontStyle.Bold),
+				Cursor = Cursors.Hand
+			};
+			btnKeychainForm.Click += (s, e) =>
+			{
+				LightBurn.KeychainJigForm.CreateAndShowDialog(Core);
+			};
+
+			Button btnCenterOnJig = new Button
+			{
+				Text = "🎯 Encaixar",
+				Size = new Size(74, 24),
+				Margin = new Padding(1),
+				FlatStyle = FlatStyle.Flat,
+				BackColor = Color.FromArgb(30, 80, 120),
+				ForeColor = Color.White,
+				Font = new Font("Segoe UI", 7.5f, FontStyle.Bold),
+				Cursor = Cursors.Hand
+			};
+			btnCenterOnJig.Click += (s, e) =>
+			{
+				LightBurn.KeychainJigManager.CenterArtwork(Core);
+				Invalidate();
+				UpdatePositionBarCoords();
+			};
+
+			Button btnDuplicateOnGrid = new Button
+			{
+				Text = "📋 Duplicar",
+				Size = new Size(76, 24),
+				Margin = new Padding(1),
+				FlatStyle = FlatStyle.Flat,
+				BackColor = Color.FromArgb(20, 110, 160),
+				ForeColor = Color.White,
+				Font = new Font("Segoe UI", 7.5f, FontStyle.Bold),
+				Cursor = Cursors.Hand
+			};
+			btnDuplicateOnGrid.Click += (s, e) =>
+			{
+				LightBurn.KeychainJigManager.DuplicateArtworkAcrossGrid(Core, this);
+				Invalidate();
+				UpdatePositionBarCoords();
+			};
+
+			Button btnBurnJigCardboard = new Button
+			{
+				Text = "🔥 Ninho 15%",
+				Size = new Size(84, 24),
+				Margin = new Padding(1),
+				FlatStyle = FlatStyle.Flat,
+				BackColor = Color.FromArgb(200, 75, 25),
+				ForeColor = Color.White,
+				Font = new Font("Segoe UI", 7.5f, FontStyle.Bold),
+				Cursor = Cursors.Hand
+			};
+			btnBurnJigCardboard.Click += (s, e) =>
+			{
+				LightBurn.KeychainJigManager.ExecuteBurn(Core, this);
+			};
+
+			pnlKeychainRow.Controls.Add(btnKeychainForm);
+			pnlKeychainRow.Controls.Add(btnCenterOnJig);
+			pnlKeychainRow.Controls.Add(btnDuplicateOnGrid);
+			pnlKeychainRow.Controls.Add(btnBurnJigCardboard);
+
 			Label lblTip = new Label
 			{
 				Text = "💡 Dica: Clique direito na mesa ou segure SHIFT + arraste com mouse!",
-				Location = new Point(6, 154),
-				Size = new Size(318, 30),
+				Location = new Point(6, 210),
+				Size = new Size(318, 34),
 				Font = new Font("Segoe UI", 7.5f, FontStyle.Italic),
 				ForeColor = Color.FromArgb(148, 163, 184)
 			};
@@ -1533,6 +2191,8 @@ namespace LaserGRBL.UserControls
 			pnlPositionBar.Controls.Add(pnlNudges);
 			pnlPositionBar.Controls.Add(pnlActions);
 			pnlPositionBar.Controls.Add(pnlRotateRow);
+			pnlPositionBar.Controls.Add(pnlBedFrameRow);
+			pnlPositionBar.Controls.Add(pnlKeychainRow);
 			pnlPositionBar.Controls.Add(lblTip);
 
 			Controls.Add(pnlPositionBar);
