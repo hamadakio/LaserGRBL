@@ -16,6 +16,7 @@ using System.Web;
 using System.Windows.Forms;
 using System.Xml.Linq;
 using Tools;
+using LaserGRBL.LightBurn;
 using static LaserGRBL.GrblCore;
 using static LaserGRBL.HotKeysManager;
 
@@ -667,6 +668,38 @@ namespace LaserGRBL
 		{
 			if (LoadedFile == null || LoadedFile.Count == 0) return;
 			LoadedFile.Rotate(angleDeg);
+		}
+
+		public bool HasCutAroundEnabled => LoadedFile != null && LoadedFile.HasCutAroundEnabled;
+
+		public CutAroundConfig GetCutAroundConfig()
+		{
+			if (LoadedFile?.CutAroundConfig != null)
+				return LoadedFile.CutAroundConfig.Clone();
+			return new CutAroundConfig();
+		}
+
+		public CutMachineOptions BuildCutMachineOptions()
+		{
+			return new CutMachineOptions
+			{
+				MaxPWM = (int)Configuration.MaxPWM,
+				HardwarePwm = Settings.GetObject("Support Hardware PWM", true),
+				DisableG0FastSkip = Settings.GetObject("Disable G0 fast skip", false),
+				IsSmoothie = Type == Firmware.Smoothie
+			};
+		}
+
+		public void ApplyCutAround(CutAroundConfig config, CutMachineOptions machineOptions = null)
+		{
+			if (LoadedFile == null || LoadedFile.Count == 0) return;
+			LoadedFile.ApplyCutAround(config, machineOptions ?? BuildCutMachineOptions());
+		}
+
+		public void DisableCutAround()
+		{
+			if (LoadedFile == null) return;
+			LoadedFile.DisableCutAround();
 		}
 
 		public void ReOpenFile()

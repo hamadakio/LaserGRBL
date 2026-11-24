@@ -17,6 +17,7 @@ using System.Threading.Tasks;
 using System.Threading;
 using LaserGRBL.SvgConverter;
 using LaserGRBL.Obj3D;
+using LaserGRBL.LightBurn;
 using SharpGL.SceneGraph;
 
 namespace LaserGRBL
@@ -34,6 +35,17 @@ namespace LaserGRBL
 		private TimeSpan mEstimatedTotalTime;
 		public List<GrblCommand> Commands => list;
 		private Thread mLoadingThread = null;
+
+		private List<GrblCommand> mBaseEngravingCommands = null;
+		private CutAroundConfig mCutAroundConfig = new CutAroundConfig();
+		private CutMachineOptions mCutMachineOptions = new CutMachineOptions();
+		private CutAroundBuildResult mCutAroundResult = null;
+
+		public CutAroundConfig CutAroundConfig => mCutAroundConfig;
+		public bool HasCutAroundEnabled => mCutAroundConfig != null && mCutAroundConfig.Enabled && mBaseEngravingCommands != null;
+		public IReadOnlyList<GrblCommand> BaseEngravingCommands => mBaseEngravingCommands;
+		public CutAroundBuildResult CutAroundResult => mCutAroundResult;
+		public IReadOnlyList<PointF> CutAroundPolygon => mCutAroundResult?.CutPolygon;
 
 		public GrblFile()
 		{
@@ -53,7 +65,202 @@ namespace LaserGRBL
                 command.Dispose();
             }
             list.Clear();
+			ResetCutAroundState();
         }
+
+		private void ResetCutAroundState()
+		{
+			if (mBaseEngravingCommands != null)
+			{
+				foreach (GrblCommand command in mBaseEngravingCommands)
+					command.Dispose();
+				mBaseEngravingCommands = null;
+			}
+			mCutAroundConfig = new CutAroundConfig();
+			mCutMachineOptions = new CutMachineOptions();
+			mCutAroundResult = null;
+		}
+
+		private void PrepareAppendCutAroundReset()
+		{
+			if (HasCutAroundEnabled && mBaseEngravingCommands != null)
+			{
+				foreach (GrblCommand command in list)
+					command.Dispose();
+				list.Clear();
+				foreach (GrblCommand command in mBaseEngravingCommands)
+					list.Add(new GrblCommand(command.Command));
+			}
+			ResetCutAroundState();
+		}
+
+		public IReadOnlyList<GrblCommand> GetEngravingCommandsSnapshot()
+		{
+			if (mBaseEngravingCommands != null)
+				return mBaseEngravingCommands;
+			return list;
+		}
+
+		public void LoadCommands(IEnumerable<string> gcodeLines, string filename = "Generated", bool append = false)
+		{
+			if (CheckInUse()) return;
+
+			RiseOnFileLoading(filename);
+			long start = Tools.HiResTimer.TotalMilliseconds;
+
+			if (!append)
+				ClearList();
+			else
+				PrepareAppendCutAroundReset();
+
+			mRange.ResetRange();
+
+			if (gcodeLines != null)
+			{
+				foreach (string rawLine in gcodeLines)
+				{
+					if (string.IsNullOrWhiteSpace(rawLine)) continue;
+					string trimmed = rawLine.Trim();
+					if (trimmed.Length > 0)
+					{
+						GrblCommand cmd = new GrblCommand(trimmed);
+						if (!cmd.IsEmpty)
+							list.Add(cmd);
+					}
+				}
+			}
+
+			Analyze();
+			long elapsed = Tools.HiResTimer.TotalMilliseconds - start;
+			RiseOnFileLoaded(filename, elapsed);
+		}
+
+		public void SetCutAround(CutAroundConfig config, CutMachineOptions machineOptions = null)
+		{
+			if (config != null && config.Enabled)
+				ApplyCutAround(config, machineOptions);
+			else
+				DisableCutAround();
+		}
+
+		public void ClearCutAround()
+		{
+			DisableCutAround();
+		}
+
+		public void ApplyCutAround(CutAroundConfig config, CutMachineOptions machineOptions = null)
+		{
+			if (CheckInUse()) return;
+			if (config == null)
+			{
+				DisableCutAround();
+				return;
+			}
+
+			CutAroundConfig clonedCfg = config.Clone();
+			clonedCfg.ValidateAndClamp();
+			clonedCfg.Enabled = true;
+
+			CutMachineOptions clonedOpts = machineOptions != null ? machineOptions.Clone() : new CutMachineOptions();
+			clonedOpts.ValidateAndClamp();
+
+			IReadOnlyList<GrblCommand> sourceEngraving = mBaseEngravingCommands ?? (IReadOnlyList<GrblCommand>)list;
+			CutAroundBuildResult preCheck = CutAroundGenerator.BuildCutAround(sourceEngraving, clonedCfg, clonedOpts);
+			if (preCheck == null || !preCheck.IsValid || preCheck.CutCommands == null || preCheck.CutCommands.Count == 0)
+			{
+				if (mBaseEngravingCommands != null)
+				{
+					DisableCutAround();
+				}
+				else
+				{
+					clonedCfg.Enabled = false;
+					mCutAroundConfig = clonedCfg;
+					mCutMachineOptions = clonedOpts;
+					mCutAroundResult = null;
+				}
+				return;
+			}
+
+			if (mBaseEngravingCommands == null)
+			{
+				mBaseEngravingCommands = new List<GrblCommand>(list.Count);
+				foreach (GrblCommand cmd in list)
+					mBaseEngravingCommands.Add(new GrblCommand(cmd.Command));
+			}
+
+			mCutAroundConfig = clonedCfg;
+			mCutMachineOptions = clonedOpts;
+
+			RebuildCommandsWithCutAround("CutAround");
+		}
+
+		public void DisableCutAround()
+		{
+			if (CheckInUse()) return;
+
+			if (mCutAroundConfig != null)
+				mCutAroundConfig.Enabled = false;
+
+			if (mBaseEngravingCommands != null)
+			{
+				foreach (GrblCommand command in list)
+					command.Dispose();
+				list.Clear();
+
+				foreach (GrblCommand cmd in mBaseEngravingCommands)
+					list.Add(new GrblCommand(cmd.Command));
+
+				foreach (GrblCommand cmd in mBaseEngravingCommands)
+					cmd.Dispose();
+				mBaseEngravingCommands = null;
+				mCutAroundResult = null;
+
+				Analyze();
+				RiseOnFileLoaded("CutAround", 0);
+			}
+			else
+			{
+				mCutAroundResult = null;
+			}
+		}
+
+		private void RebuildCommandsWithCutAround(string eventFilename)
+		{
+			if (mBaseEngravingCommands == null) return;
+
+			foreach (GrblCommand command in list)
+				command.Dispose();
+			list.Clear();
+
+			// 1. Engraving commands ALWAYS execute first, untouched
+			foreach (GrblCommand cmd in mBaseEngravingCommands)
+				list.Add(new GrblCommand(cmd.Command));
+
+			// 2. Generate and append cut-around commands computed strictly from base engraving
+			CutAroundBuildResult buildResult = CutAroundGenerator.BuildCutAround(mBaseEngravingCommands, mCutAroundConfig, mCutMachineOptions);
+			if (buildResult == null || !buildResult.IsValid || buildResult.CutCommands == null || buildResult.CutCommands.Count == 0)
+			{
+				if (mCutAroundConfig != null)
+					mCutAroundConfig.Enabled = false;
+
+				foreach (GrblCommand cmd in mBaseEngravingCommands)
+					cmd.Dispose();
+				mBaseEngravingCommands = null;
+				mCutAroundResult = null;
+
+				Analyze();
+				RiseOnFileLoaded(eventFilename, 0);
+				return;
+			}
+
+			mCutAroundResult = buildResult;
+			foreach (GrblCommand cutCmd in buildResult.CutCommands)
+				list.Add(cutCmd);
+
+			Analyze();
+			RiseOnFileLoaded(eventFilename, 0);
+		}
 
 		public static string TranslateGCodeLine(string line, decimal dx, decimal dy)
 		{
@@ -133,6 +340,22 @@ namespace LaserGRBL
 		{
 			if (dx == 0 && dy == 0) return;
 			if (CheckInUse()) return;
+
+			if (HasCutAroundEnabled && mBaseEngravingCommands != null)
+			{
+				for (int i = 0; i < mBaseEngravingCommands.Count; i++)
+				{
+					string oldCmd = mBaseEngravingCommands[i].Command;
+					string newCmd = TranslateGCodeLine(oldCmd, dx, dy);
+					if (newCmd != oldCmd)
+					{
+						mBaseEngravingCommands[i].Dispose();
+						mBaseEngravingCommands[i] = new GrblCommand(newCmd);
+					}
+				}
+				RebuildCommandsWithCutAround("Translated");
+				return;
+			}
 
 			for (int i = 0; i < list.Count; i++)
 			{
@@ -292,6 +515,22 @@ namespace LaserGRBL
 			decimal cx = (decimal)mRange.DrawingRange.Center.X;
 			decimal cy = (decimal)mRange.DrawingRange.Center.Y;
 
+			if (HasCutAroundEnabled && mBaseEngravingCommands != null)
+			{
+				for (int i = 0; i < mBaseEngravingCommands.Count; i++)
+				{
+					string oldCmd = mBaseEngravingCommands[i].Command;
+					string newCmd = RotateGCodeLine(oldCmd, angleDeg, cx, cy);
+					if (newCmd != oldCmd)
+					{
+						mBaseEngravingCommands[i].Dispose();
+						mBaseEngravingCommands[i] = new GrblCommand(newCmd);
+					}
+				}
+				RebuildCommandsWithCutAround("Translated");
+				return;
+			}
+
 			for (int i = 0; i < list.Count; i++)
 			{
 				string oldCmd = list[i].Command;
@@ -383,6 +622,8 @@ namespace LaserGRBL
 
 				if (!append)
                     ClearList();
+				else
+					PrepareAppendCutAroundReset();
 
 				mRange.ResetRange();
 				if (System.IO.File.Exists(filename))
@@ -416,6 +657,8 @@ namespace LaserGRBL
 
 				if (!append)
                     ClearList();
+				else
+					PrepareAppendCutAroundReset();
 
 				mRange.ResetRange();
 
@@ -618,6 +861,8 @@ namespace LaserGRBL
 
 			if (!append)
                 ClearList();
+			else
+				PrepareAppendCutAroundReset();
 
 			//list.Add(new GrblCommand("G90")); //absolute (Moved to custom Header)
 
@@ -778,6 +1023,8 @@ namespace LaserGRBL
 
 			if (!append)
                 ClearList();
+			else
+				PrepareAppendCutAroundReset();
 
 			mRange.ResetRange();
 
@@ -1657,6 +1904,8 @@ namespace LaserGRBL
 
 			if (!append)
                 ClearList();
+			else
+				PrepareAppendCutAroundReset();
 
 			mRange.ResetRange();
 

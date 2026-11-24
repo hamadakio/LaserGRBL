@@ -29,9 +29,17 @@ namespace LaserGRBL.UserControls
 
 		private Panel pnlPositionBar;
 		private Button btnTogglePosBar;
+		private Button btnCutAround;
+		private CheckBox chkCutAround;
+		private Button btnCutAroundConfig;
+		private bool mUpdatingCutAroundUi = false;
 		private NumericUpDown numPosX;
 		private NumericUpDown numPosY;
 		private Button btnLaser1Pct;
+
+		internal Button CutAroundButton => btnCutAround;
+		internal CheckBox CutAroundCheckBox => chkCutAround;
+		internal Button CutAroundConfigButton => btnCutAroundConfig;
 		private bool mIsDraggingJob = false;
 		private PointF? mDragJobStartWorldPos = null;
 		private PointF mDragJobCurrentOffset = PointF.Empty;
@@ -687,6 +695,7 @@ namespace LaserGRBL.UserControls
 					DrawMachineBedOverlay(e);
 					DrawCameraOverlay(e);
 					DrawKeychainJigOverlay(e);
+					DrawCutAroundOverlay(e);
 					DoGDIDraw(e);
 				}
 				catch (Exception ex) { OnPaintException = ex;  }
@@ -1149,6 +1158,101 @@ namespace LaserGRBL.UserControls
 			catch { }
 		}
 
+		private void DrawCutAroundOverlay(PaintEventArgs e)
+		{
+			if (Core == null || !Core.HasCutAroundEnabled) return;
+
+			var file = Core.LoadedFile;
+			var poly = file?.CutAroundPolygon;
+			var cfg = file?.CutAroundConfig;
+			var res = file?.CutAroundResult;
+			if (poly == null || poly.Count < 2 || cfg == null || res == null) return;
+
+			try
+			{
+				float camW = (float)(mCamera.Right - mCamera.Left);
+				float camH = (float)(mCamera.Top - mCamera.Bottom);
+				if (camW <= 0 || camH <= 0) return;
+
+				float dx = mIsDraggingJob ? mDragJobCurrentOffset.X : 0f;
+				float dy = mIsDraggingJob ? mDragJobCurrentOffset.Y : 0f;
+
+				float bedW = Core.MachineBedWidth.Value;
+				float bedH = Core.MachineBedHeight.Value;
+				bool outOfBounds = false;
+
+				PointF[] screenPts = new PointF[poly.Count];
+				float minSx = float.MaxValue, maxSx = float.MinValue;
+				float minSy = float.MaxValue, maxSy = float.MinValue;
+
+				for (int i = 0; i < poly.Count; i++)
+				{
+					float wx = poly[i].X + dx;
+					float wy = poly[i].Y + dy;
+
+					if (wx < 0f || wx > bedW || wy < 0f || wy > bedH)
+						outOfBounds = true;
+
+					float sx = (float)((wx - mCamera.Left) / camW * Width);
+					float sy = (float)(Height - (wy - mCamera.Bottom) / camH * Height);
+					screenPts[i] = new PointF(sx, sy);
+
+					if (sx < minSx) minSx = sx;
+					if (sx > maxSx) maxSx = sx;
+					if (sy < minSy) minSy = sy;
+					if (sy > maxSy) maxSy = sy;
+				}
+
+				e.Graphics.SmoothingMode = SmoothingMode.AntiAlias;
+
+				Color cutColor = outOfBounds ? Color.FromArgb(255, 75, 75) : Color.FromArgb(244, 114, 182);
+				using (GraphicsPath path = new GraphicsPath())
+				{
+					path.AddLines(screenPts);
+					using (SolidBrush fillBrush = new SolidBrush(Color.FromArgb(20, cutColor)))
+					using (Pen shadowPen = new Pen(Color.FromArgb(140, 0, 0, 0), 3.6f))
+					using (Pen cutPen = new Pen(cutColor, 2.2f) { DashStyle = DashStyle.Dash })
+					{
+						e.Graphics.FillPath(fillBrush, path);
+						e.Graphics.DrawPath(shadowPen, path);
+						e.Graphics.DrawPath(cutPen, path);
+					}
+				}
+
+				string shapeName;
+				switch (cfg.Shape)
+				{
+					case CutAroundShape.RoundedRectangle: shapeName = "Ret. Arredondado"; break;
+					case CutAroundShape.Circle: shapeName = "Círculo"; break;
+					case CutAroundShape.Ellipse: shapeName = "Elipse"; break;
+					case CutAroundShape.Contour: shapeName = "Contorno"; break;
+					default: shapeName = "Retângulo"; break;
+				}
+
+				string badgeText = outOfBounds
+					? $"⚠ CORTE FORA DA MESA: {shapeName} ({res.CutWidth:0.0}×{res.CutHeight:0.0} mm)"
+					: $"✂ Corte: {shapeName} ({res.CutWidth:0.0}×{res.CutHeight:0.0} mm | {cfg.Passes}x | {cfg.SpeedMmMin}mm/m | {cfg.PowerPercent}%)";
+
+				using (Font badgeFont = new Font("Segoe UI", 8.2f, FontStyle.Bold))
+				{
+					Size textSize = TextRenderer.MeasureText(badgeText, badgeFont);
+					int badgeX = (int)Math.Max(6, Math.Min(Width - textSize.Width - 10, (minSx + maxSx) / 2f - textSize.Width / 2f));
+					int badgeY = (int)Math.Max(8, minSy - textSize.Height - 8);
+
+					Rectangle badgeRect = new Rectangle(badgeX - 4, badgeY - 2, textSize.Width + 8, textSize.Height + 4);
+					using (SolidBrush badgeBg = new SolidBrush(outOfBounds ? Color.FromArgb(220, 180, 20, 20) : Color.FromArgb(205, 35, 20, 45)))
+					using (Pen badgeBorder = new Pen(cutColor, 1f))
+					using (SolidBrush textBrush = new SolidBrush(Color.White))
+					{
+						e.Graphics.FillRectangle(badgeBg, badgeRect);
+						e.Graphics.DrawRectangle(badgeBorder, badgeRect);
+						e.Graphics.DrawString(badgeText, badgeFont, textBrush, badgeX, badgeY);
+					}
+				}
+			}
+			catch { }
+		}
+
 		private void DoGDIDraw(PaintEventArgs e)
 		{
 			if (Core == null) return;
@@ -1535,6 +1639,32 @@ namespace LaserGRBL.UserControls
 				cms.Items.Add(miRotDrawing);
 
 				cms.Items.Add(new ToolStripSeparator());
+
+				string cutMenuTitle = Core?.HasCutAroundEnabled == true
+					? "✂ Configurar Corte em Volta..."
+					: "✂ Cortar em Volta...";
+				ToolStripMenuItem miCutAround = new ToolStripMenuItem(cutMenuTitle, null, (s, ev) =>
+				{
+					OpenCutAroundDialog();
+				})
+				{
+					Checked = Core?.HasCutAroundEnabled == true
+				};
+				cms.Items.Add(miCutAround);
+
+				if (Core?.HasCutAroundEnabled == true)
+				{
+					ToolStripMenuItem miDisableCutAround = new ToolStripMenuItem("✖ Desabilitar Corte em Volta", null, (s, ev) =>
+					{
+						Core?.DisableCutAround();
+						UpdateCutAroundUiState();
+						UpdatePositionBarCoords();
+						Invalidate();
+					});
+					cms.Items.Add(miDisableCutAround);
+				}
+
+				cms.Items.Add(new ToolStripSeparator());
 			}
 
 			ToolStripMenuItem miJog = new ToolStripMenuItem($"📍 Mover Cabeça do Laser para Cá (Jog)", null, (s, ev) =>
@@ -1756,6 +1886,22 @@ namespace LaserGRBL.UserControls
 
 		private void InitializePositioningBar()
 		{
+			btnCutAround = new Button
+			{
+				Text = "✂ Cortar em Volta",
+				Size = new Size(140, 26),
+				Location = new Point(Math.Max(10, Width - 266), Math.Max(10, Height - 36)),
+				Anchor = AnchorStyles.Bottom | AnchorStyles.Right,
+				FlatStyle = FlatStyle.Flat,
+				BackColor = Color.FromArgb(220, 30, 41, 59),
+				ForeColor = Color.White,
+				Font = new Font("Segoe UI", 8.5f, FontStyle.Bold),
+				Cursor = Cursors.Hand,
+				Enabled = false
+			};
+			btnCutAround.FlatAppearance.BorderColor = Color.FromArgb(70, 85, 110);
+			btnCutAround.Click += (s, e) => OpenCutAroundDialog();
+
 			btnTogglePosBar = new Button
 			{
 				Text = "🎯 Posicionar",
@@ -1781,8 +1927,8 @@ namespace LaserGRBL.UserControls
 
 			pnlPositionBar = new Panel
 			{
-				Size = new Size(330, 250),
-				Location = new Point(Math.Max(10, Width - 345), Math.Max(10, Height - 295)),
+				Size = new Size(330, 282),
+				Location = new Point(Math.Max(10, Width - 345), Math.Max(10, Height - 327)),
 				Anchor = AnchorStyles.Bottom | AnchorStyles.Right,
 				BackColor = Color.FromArgb(235, 20, 25, 35),
 				BorderStyle = BorderStyle.FixedSingle,
@@ -2171,10 +2317,66 @@ namespace LaserGRBL.UserControls
 			pnlKeychainRow.Controls.Add(btnDuplicateOnGrid);
 			pnlKeychainRow.Controls.Add(btnBurnJigCardboard);
 
+			FlowLayoutPanel pnlCutAroundRow = new FlowLayoutPanel
+			{
+				Location = new Point(6, 208),
+				Size = new Size(318, 28),
+				WrapContents = false
+			};
+
+			chkCutAround = new CheckBox
+			{
+				Text = "✂ Cortar em Volta",
+				Size = new Size(142, 24),
+				Margin = new Padding(1, 2, 1, 0),
+				ForeColor = Color.FromArgb(244, 114, 182),
+				Font = new Font("Segoe UI", 8f, FontStyle.Bold),
+				Enabled = false
+			};
+			chkCutAround.CheckedChanged += (s, e) =>
+			{
+				if (mUpdatingCutAroundUi) return;
+				bool hasDrawing = Core?.LoadedFile?.Range?.DrawingRange?.ValidRange == true;
+				if (!hasDrawing)
+				{
+					UpdateCutAroundUiState();
+					return;
+				}
+				if (chkCutAround.Checked)
+				{
+					OpenCutAroundDialog();
+				}
+				else
+				{
+					Core?.DisableCutAround();
+					UpdateCutAroundUiState();
+					UpdatePositionBarCoords();
+					Invalidate();
+				}
+			};
+
+			btnCutAroundConfig = new Button
+			{
+				Text = "⚙ Configurar Corte...",
+				Size = new Size(168, 24),
+				Margin = new Padding(1),
+				FlatStyle = FlatStyle.Flat,
+				BackColor = Color.FromArgb(75, 35, 70),
+				ForeColor = Color.White,
+				Font = new Font("Segoe UI", 7.5f, FontStyle.Bold),
+				Cursor = Cursors.Hand,
+				Enabled = false
+			};
+			btnCutAroundConfig.FlatAppearance.BorderColor = Color.FromArgb(140, 70, 120);
+			btnCutAroundConfig.Click += (s, e) => OpenCutAroundDialog();
+
+			pnlCutAroundRow.Controls.Add(chkCutAround);
+			pnlCutAroundRow.Controls.Add(btnCutAroundConfig);
+
 			Label lblTip = new Label
 			{
 				Text = "💡 Dica: Clique direito na mesa ou segure SHIFT + arraste com mouse!",
-				Location = new Point(6, 210),
+				Location = new Point(6, 242),
 				Size = new Size(318, 34),
 				Font = new Font("Segoe UI", 7.5f, FontStyle.Italic),
 				ForeColor = Color.FromArgb(148, 163, 184)
@@ -2193,12 +2395,79 @@ namespace LaserGRBL.UserControls
 			pnlPositionBar.Controls.Add(pnlRotateRow);
 			pnlPositionBar.Controls.Add(pnlBedFrameRow);
 			pnlPositionBar.Controls.Add(pnlKeychainRow);
+			pnlPositionBar.Controls.Add(pnlCutAroundRow);
 			pnlPositionBar.Controls.Add(lblTip);
 
 			Controls.Add(pnlPositionBar);
+			Controls.Add(btnCutAround);
 			Controls.Add(btnTogglePosBar);
 			pnlPositionBar.BringToFront();
+			btnCutAround.BringToFront();
 			btnTogglePosBar.BringToFront();
+			UpdateCutAroundUiState();
+		}
+
+		internal void OpenCutAroundDialog()
+		{
+			bool hasDrawing = Core?.LoadedFile?.Range?.DrawingRange?.ValidRange == true;
+			if (!hasDrawing)
+			{
+				MessageBox.Show(this, "Carregue uma imagem ou desenho na mesa primeiro para configurar o corte em volta.", "Cortar em Volta", MessageBoxButtons.OK, MessageBoxIcon.Information);
+				UpdateCutAroundUiState();
+				return;
+			}
+
+			CutAroundForm.CreateAndShowDialog(Core);
+			UpdateCutAroundUiState();
+			UpdatePositionBarCoords();
+			Invalidate();
+		}
+
+		internal void UpdateCutAroundUiState()
+		{
+			try
+			{
+				if (IsHandleCreated && InvokeRequired)
+				{
+					BeginInvoke(new Action(UpdateCutAroundUiState));
+					return;
+				}
+
+				bool hasDrawing = Core?.LoadedFile?.Range?.DrawingRange?.ValidRange == true;
+				bool cutActive = hasDrawing && Core?.HasCutAroundEnabled == true;
+
+				mUpdatingCutAroundUi = true;
+				try
+				{
+					if (btnCutAround != null)
+					{
+						btnCutAround.Enabled = hasDrawing;
+						btnCutAround.Text = cutActive ? "✂ Corte Ativo ✓" : "✂ Cortar em Volta";
+						btnCutAround.BackColor = cutActive
+							? Color.FromArgb(190, 45, 110)
+							: Color.FromArgb(220, 30, 41, 59);
+						btnCutAround.FlatAppearance.BorderColor = cutActive
+							? Color.FromArgb(244, 114, 182)
+							: Color.FromArgb(70, 85, 110);
+					}
+
+					if (chkCutAround != null)
+					{
+						chkCutAround.Enabled = hasDrawing;
+						chkCutAround.Checked = cutActive;
+					}
+
+					if (btnCutAroundConfig != null)
+					{
+						btnCutAroundConfig.Enabled = hasDrawing;
+					}
+				}
+				finally
+				{
+					mUpdatingCutAroundUi = false;
+				}
+			}
+			catch { }
 		}
 
 		private void UpdatePositionBarCoords()
@@ -2244,6 +2513,7 @@ namespace LaserGRBL.UserControls
 			Core.OnZoomInDrawing += Core_OnZoomInDrawing;
 			Core.OnZoomOutDrawing += Core_OnZoomOutDrawing;
 			Core.OnProgramEnded += OnProgramEnded;
+			UpdateCutAroundUiState();
 		}
 
         private void OnFileLoading(long elapsed, string filename)
@@ -2307,11 +2577,12 @@ namespace LaserGRBL.UserControls
 		{
 			DisposeGrbl3D();
 			mReload = true;
-			if (filename != "Translated")
+			if (filename != "Translated" && filename != "CutAround")
 				AutoSizeDrawing();
 			else
 				Invalidate();
 			UpdatePositionBarCoords();
+			UpdateCutAroundUiState();
 		}
 		
 		public void AutoSizeDrawing()

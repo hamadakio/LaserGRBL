@@ -1114,6 +1114,11 @@
     <Compile Include="LightBurn\KeychainJigForm.cs">
       <SubType>Form</SubType>
     </Compile>
+    <Compile Include="LightBurn\CutAroundConfig.cs" />
+    <Compile Include="LightBurn\CutAroundGenerator.cs" />
+    <Compile Include="LightBurn\CutAroundForm.cs">
+      <SubType>Form</SubType>
+    </Compile>
     <Compile Include="Camera\CameraOverlayManager.cs" />
     <Compile Include="Camera\LaserCameraServer.cs" />
     <Compile Include="Camera\CameraCalibrationForm.cs">

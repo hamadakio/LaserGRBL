@@ -233,6 +233,9 @@ namespace LaserGRBL
 			public bool LaserBurning
 			{ get { return (!supportPWM || S.Number > 0) && (SpindleState.Number == 3 || (SpindleState.Number == 4 && MotionMode.Number != 0)); } }
 
+			public bool IsLaserBurning(bool hardwarePwm)
+			{ return (!hardwarePwm || S.Number > 0) && (SpindleState.Number == 3 || (SpindleState.Number == 4 && MotionMode.Number != 0)); }
+
 			internal void Homing()
 			{
 				mCurX = new CumulativeElement("X0");
